@@ -50,17 +50,13 @@ while IFS='|' read -r name repo ref license purpose; do
     echo "  ref:  $ref"
     echo "  license: $license"
 
-    if [[ -d "$dest" ]]; then
+    if [[ -d "$dest/.git" ]]; then
         echo "  -> already cloned at $dest, skipping clone"
     else
-        echo "  -> cloning to $dest ..."
-        git clone --depth 1 "$repo" "$dest"
-        if [[ "$ref" != "master" && "$ref" != "main" ]]; then
-            cd "$dest"
-            git fetch --depth 1 origin "$ref"
-            git checkout "$ref"
-            cd -
-        fi
+        echo "  -> cloning ref '$ref' to $dest ..."
+        # Use --branch for tags/branches (more efficient than fetch+checkout).
+        # Works for tags like 'v2_1_0r' and branches like 'master'.
+        git clone --depth 1 --branch "$ref" "$repo" "$dest"
     fi
     echo
 done < "$MANIFEST"

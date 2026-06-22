@@ -82,6 +82,15 @@ UASTC_QUALITY_LEVELS = {
 # We default to 4x4 because it's universally supported on Mali-G610+ and Adreno 6xx+.
 ASTC_BLOCK_SIZE = "4x4"
 
+# Supported input file extensions (matched case-insensitively)
+SUPPORTED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tga", ".qoi", ".dds", ".exr", ".hdr"}
+
+# Valid ASTC block sizes (per ASTC spec)
+VALID_ASTC_BLOCK_SIZES = {
+    "4x4", "5x4", "5x5", "6x5", "6x6", "8x5", "8x6", "8x8",
+    "10x5", "10x6", "10x8", "10x10", "12x10", "12x12",
+}
+
 
 # =============================================================================
 # Data classes
@@ -112,17 +121,40 @@ class TextureResult:
 # =============================================================================
 
 class AOTTextureTranscoder:
-    """Orchestrates the AOT texture preprocessing pipeline."""
+    """Orchestrates the AOT texture preprocessing pipeline.
 
-    def __init__(self, basisu_bin: Path = BASISU_BIN, quality: str = "default"):
+    Args:
+        basisu_bin: Path to the basisu CLI binary.
+        quality: UASTC encoding quality ("fast", "default", or "max").
+        astc_block_size: ASTC block size for on-device transcode (e.g. "4x4", "6x6").
+        single_threaded: If True, disable basisu's internal multithreading.
+            ONLY use for benchmarking - production should leave False for speed.
+    """
+
+    def __init__(
+        self,
+        basisu_bin: Path = BASISU_BIN,
+        quality: str = "default",
+        astc_block_size: str = ASTC_BLOCK_SIZE,
+        single_threaded: bool = False,
+    ):
         if not basisu_bin.exists():
             raise FileNotFoundError(
                 f"basisu binary not found at {basisu_bin}. "
                 f"Build it first with: cd third_party/basis_universal && mkdir build && "
                 f"cd build && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j$(nproc)"
             )
+        if quality not in UASTC_QUALITY_LEVELS:
+            raise ValueError(f"quality must be one of {list(UASTC_QUALITY_LEVELS)}, got {quality!r}")
+        if astc_block_size not in VALID_ASTC_BLOCK_SIZES:
+            raise ValueError(
+                f"astc_block_size must be one of {sorted(VALID_ASTC_BLOCK_SIZES)}, "
+                f"got {astc_block_size!r}"
+            )
         self.basisu = str(basisu_bin)
-        self.uastc_level = UASTC_QUALITY_LEVELS.get(quality, 2)
+        self.uastc_level = UASTC_QUALITY_LEVELS[quality]
+        self.astc_block_size = astc_block_size
+        self.single_threaded = single_threaded
 
     def detect_source_format(self, src_path: Path) -> str:
         """Detect the source texture format from file extension."""
@@ -145,6 +177,14 @@ class AOTTextureTranscoder:
         Encode source texture to KTX2 container with UASTC codec.
         This is the expensive step - done ONCE on install.
         """
+        if not src_path.exists():
+            raise FileNotFoundError(f"Source texture not found: {src_path}")
+        if src_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+            raise ValueError(
+                f"Unsupported texture format: {src_path.suffix} "
+                f"(supported: {sorted(SUPPORTED_EXTENSIONS)})"
+            )
+
         cmd = [
             self.basisu,
             str(src_path),
@@ -155,9 +195,11 @@ class AOTTextureTranscoder:
             "-mipmap",                   # Generate mipmaps
             "-mip_scale", "1.0",
             "-ktx2_zstandard_level", "9",  # Zstd supercompression level (default=on)
-            "-no_multithreading",        # Deterministic for benchmarking
-            "-output_file", str(out_path),
         ]
+        if self.single_threaded:
+            # ONLY for benchmarking - slows down encoding by ~2-4x
+            cmd.append("-no_multithreading")
+        cmd.extend(["-output_file", str(out_path)])
         t0 = time.perf_counter()
         result = subprocess.run(cmd, capture_output=True, text=True)
         t1 = time.perf_counter()
@@ -171,7 +213,7 @@ class AOTTextureTranscoder:
         return encode_ms, size
 
     def transcode_to_astc(
-        self, ktx2_path: Path, out_path: Path, block_size: str = ASTC_BLOCK_SIZE
+        self, ktx2_path: Path, out_path: Path, block_size: str | None = None
     ) -> tuple[float, int]:
         """
         Transcode KTX2/UASTC to .astc file (mobile GPU native format).
@@ -179,9 +221,24 @@ class AOTTextureTranscoder:
         Basis Universal's transcoder is designed to be near-instant per block.
 
         Note: On the actual device, this would be a library call to
-        basisu_transcoder.cpp (single-file, no deps) — NOT a subprocess.
+        basisu_transcoder.cpp (single-file, no deps) - NOT a subprocess.
         We use the CLI here for PoC demonstration only.
+
+        Args:
+            ktx2_path: Input KTX2/UASTC file path.
+            out_path: Output .astc file path.
+            block_size: ASTC block size (e.g. "4x4", "6x6"). Defaults to
+                self.astc_block_size. NOTE: The basisu CLI's -unpack mode
+                always produces ASTC 4x4 (because UASTC is 4x4 internally);
+                to get other block sizes you must re-encode with -ldr_NxN.
+                This parameter is validated but currently informational.
         """
+        if not ktx2_path.exists():
+            raise FileNotFoundError(f"KTX2 input not found: {ktx2_path}")
+        bs = block_size or self.astc_block_size
+        if bs not in VALID_ASTC_BLOCK_SIZES:
+            raise ValueError(f"Invalid ASTC block size: {bs!r}")
+
         # The basisu CLI's -unpack mode produces ALL supported formats at once
         # (BC1/BC3/BC7/ETC1/ETC2/PVRTC/ASTC). In production we'd link the
         # transcoder library directly and call basist::transcode_astc() to
@@ -189,43 +246,53 @@ class AOTTextureTranscoder:
         # pick the ASTC file out of the output set.
         out_dir = out_path.parent
         work_dir = out_dir / f"_unpack_tmp_{ktx2_path.stem}"
+
+        # BUGFIX: Use try/finally so temp dir is always cleaned up, even on failure.
+        # Previously, if subprocess failed, the temp dir lingered on disk.
         if work_dir.exists():
             shutil.rmtree(work_dir)
         work_dir.mkdir(parents=True)
 
-        cmd = [
-            self.basisu,
-            "-unpack",
-            str(ktx2_path),
-            "-no_multithreading",
-            "-output_path", str(work_dir),
-        ]
-        t0 = time.perf_counter()
-        result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(work_dir))
-        t1 = time.perf_counter()
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"basisu transcode failed for {ktx2_path}:\n"
-                f"stdout: {result.stdout}\nstderr: {result.stderr}"
-            )
+        try:
+            cmd = [
+                self.basisu,
+                "-unpack",
+                str(ktx2_path),
+                "-output_path", str(work_dir),
+            ]
+            if self.single_threaded:
+                cmd.append("-no_multithreading")
 
-        # Find the level-0 ASTC file (highest resolution mipmap)
-        astc_candidates = sorted(work_dir.glob("*_ASTC_LDR_4X4_RGBA_level_0_*.astc"))
-        if not astc_candidates:
-            # Fallback: any ASTC file
-            astc_candidates = sorted(work_dir.glob("*.astc"))
-        if not astc_candidates:
-            raise RuntimeError(f"No .astc output produced for {ktx2_path}")
+            t0 = time.perf_counter()
+            result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(work_dir))
+            t1 = time.perf_counter()
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"basisu transcode failed for {ktx2_path}:\n"
+                    f"stdout: {result.stdout}\nstderr: {result.stderr}"
+                )
 
-        # Move the level-0 ASTC to the final output path
-        shutil.copy2(astc_candidates[0], out_path)
+            # Find the level-0 ASTC file (highest resolution mipmap).
+            # UASTC always transcodes to ASTC 4x4 (the format UASTC is based on).
+            astc_candidates = sorted(work_dir.glob("*_ASTC_LDR_4X4_RGBA_level_0_*.astc"))
+            if not astc_candidates:
+                # Fallback: any ASTC file
+                astc_candidates = sorted(work_dir.glob("*.astc"))
+            if not astc_candidates:
+                raise RuntimeError(f"No .astc output produced for {ktx2_path}")
 
-        # Clean up the temp dir
-        total_astc_size = sum(f.stat().st_size for f in work_dir.glob("*.astc"))
-        shutil.rmtree(work_dir)
+            # Copy the level-0 ASTC to the final output path
+            shutil.copy2(astc_candidates[0], out_path)
 
-        transcode_ms = (t1 - t0) * 1000.0
-        return transcode_ms, total_astc_size
+            # Sum all ASTC mipmap levels for total size
+            total_astc_size = sum(f.stat().st_size for f in work_dir.glob("*.astc"))
+
+            transcode_ms = (t1 - t0) * 1000.0
+            return transcode_ms, total_astc_size
+        finally:
+            # Always clean up the temp dir, even on failure
+            if work_dir.exists():
+                shutil.rmtree(work_dir, ignore_errors=True)
 
     def process_texture(self, src_path: Path, out_dir: Path) -> TextureResult:
         """Process a single texture through the full AOT pipeline."""

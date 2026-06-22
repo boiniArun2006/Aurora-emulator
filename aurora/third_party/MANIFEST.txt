@@ -1,7 +1,12 @@
 # Third-party dependencies manifest
 #
-# Each entry: name | repo URL | commit/tag | license | purpose
+# Each entry: name | repo URL | ref (tag/branch/SHA) | license | purpose
 # Rebuild with: bash scripts/setup_third_party.sh
+#
+# IMPORTANT: Pin to specific tags for reproducibility. "master"/"main" means
+# builds can change silently when upstream pushes new commits.
+#
+# Last verified: 2026-06-22
 
-basis_universal | https://github.com/BinomialLLC/basis_universal | master | Apache-2.0 | Texture transcoding (BCn <-> ASTC <-> ETC2)
-meshoptimizer   | https://github.com/zeux/meshoptimizer          | master | MIT       | Mesh simplification (QEM-based)
+basis_universal | https://github.com/BinomialLLC/basis_universal | v2_1_0r     | Apache-2.0 | Texture transcoding (BCn <-> ASTC <-> ETC2)
+meshoptimizer   | https://github.com/zeux/meshoptimizer          | v1.1         | MIT         | Mesh simplification (QEM-based)

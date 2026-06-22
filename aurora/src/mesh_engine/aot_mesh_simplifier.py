@@ -4,7 +4,8 @@ Aurora Emulator - Phase 2: AOT Mesh Simplifier
 ================================================
 
 Implements the "Mesh Engine" of Aurora's AOT preprocessing pipeline.
-Uses meshoptimizer's QEM-based simplifier (Arseny Kapoulkine, MIT license).
+Uses meshoptimizer's QEM-based simplifier (Arseny Kapoulkine, MIT license,
+pinned to v1.1).
 
 Algorithm reference:
     Garland, M. and Heckbert, P. S. 1997.
@@ -25,14 +26,14 @@ Pipeline:
     Simplify mesh at multiple LOD levels (100%, 70%, 50%, 30%, 10%)
         |
         v
-    Package as multi-LOD bundle (e.g., .glb with multiple primitives)
+    Save each LOD as .obj (portable, well-supported)
         |
         |  [Runtime on device - pick LOD based on distance/screen size]
         v
     Upload appropriate LOD to GPU
 
 This script is a PoC: generates a synthetic high-poly sphere,
-simplifies at 4 LOD levels, reports triangle counts + timing + error.
+simplifies at 4 LOD levels, saves each LOD as .obj, reports metrics.
 """
 
 from __future__ import annotations
@@ -41,10 +42,9 @@ import argparse
 import ctypes
 import json
 import math
-import os
 import time
-from ctypes import c_float, c_size_t, c_uint, c_ubyte, POINTER
-from dataclasses import dataclass, asdict
+from ctypes import c_float, c_size_t, c_uint, POINTER
+from dataclasses import dataclass, asdict, field
 from pathlib import Path
 
 # =============================================================================
@@ -63,7 +63,16 @@ if not MESHOPT_SO.exists():
 
 _lib = ctypes.CDLL(str(MESHOPT_SO))
 
-# Function signatures (from meshoptimizer.h)
+# ---- Simplification options (from meshoptimizer.h) --------------------------
+# These are bitmask flags. We expose them so callers can pick the right
+# tradeoffs per mesh type (e.g. lock border for UV-seamed game meshes).
+SIMPLIFY_LOCK_BORDER = 1 << 0       # Preserve topological border (UV seams)
+SIMPLIFY_SPARSE = 1 << 1            # Input is a sparse subset
+SIMPLIFY_ERROR_ABSOLUTE = 1 << 2    # Error is absolute, not relative to mesh extents
+SIMPLIFY_PRUNE = 1 << 3             # Remove disconnected parts
+SIMPLIFY_REGULARIZE = 1 << 4        # More regular triangle shapes (costs quality)
+
+# ---- Function signatures (from meshoptimizer.h) -----------------------------
 # size_t meshopt_simplify(
 #     unsigned int* destination,
 #     const unsigned int* indices, size_t index_count,
@@ -71,11 +80,11 @@ _lib = ctypes.CDLL(str(MESHOPT_SO))
 #     size_t target_index_count, float target_error,
 #     unsigned int options, float* result_error);
 _lib.meshopt_simplify.argtypes = [
-    POINTER(c_uint),                   # destination
-    POINTER(c_uint), c_size_t,         # indices, index_count
-    POINTER(c_float), c_size_t, c_size_t,  # vertices, vertex_count, stride
-    c_size_t, c_float,                 # target_index_count, target_error
-    c_uint, POINTER(c_float),          # options, result_error
+    POINTER(c_uint),                          # destination
+    POINTER(c_uint), c_size_t,                # indices, index_count
+    POINTER(c_float), c_size_t, c_size_t,     # vertices, vertex_count, stride
+    c_size_t, c_float,                        # target_index_count, target_error
+    c_uint, POINTER(c_float),                 # options, result_error
 ]
 _lib.meshopt_simplify.restype = c_size_t
 
@@ -83,6 +92,9 @@ _lib.meshopt_simplify.restype = c_size_t
 #     void* destination,
 #     unsigned int* indices, size_t index_count,
 #     const void* vertices, size_t vertex_count, size_t vertex_size);
+# IMPORTANT: This reorders vertices into `destination` AND rewrites `indices`
+# in place. The resulting indices reference the new vertex order, NOT the
+# original. Callers MUST use the destination buffer, not the source.
 _lib.meshopt_optimizeVertexFetch.argtypes = [
     ctypes.c_void_p,
     POINTER(c_uint), c_size_t,
@@ -99,13 +111,15 @@ _lib.meshopt_optimizeVertexFetch.restype = None
 class LODResult:
     """Result of simplifying a mesh to one LOD level."""
     lod_name: str
-    target_ratio: float          # requested triangle ratio
-    actual_index_count: int      # actual triangles * 3 after simplification
+    target_ratio: float                 # requested triangle ratio
+    actual_index_count: int             # actual triangles * 3 after simplification
     actual_triangle_count: int
-    target_error: float          # requested error threshold
-    result_error: float          # actual error achieved
+    actual_vertex_count: int            # vertices after compaction (NEW)
+    target_error: float                 # requested error threshold
+    result_error: float                 # actual error achieved
     simplify_time_ms: float
     vertex_fetch_optimize_ms: float
+    obj_file: str = ""                  # path to saved .obj (NEW)
 
 
 @dataclass
@@ -123,9 +137,13 @@ def generate_uv_sphere(radius: float = 1.0,
                        lat_segments: int = 64,
                        lon_segments: int = 128) -> tuple[list[float], list[int]]:
     """Generate a UV sphere as (vertices, indices).
-    vertices: flat list of floats, 6 per vertex (x,y,z, nx,ny,nz) - but meshopt only needs positions.
-    For PoC we just produce positions (3 floats per vertex).
+    vertices: flat list of floats, 3 per vertex (x,y,z position only).
     """
+    if lat_segments < 2 or lon_segments < 3:
+        raise ValueError(f"lat_segments>=2 and lon_segments>=3 required, got {lat_segments}/{lon_segments}")
+    if radius <= 0:
+        raise ValueError(f"radius must be positive, got {radius}")
+
     vertices: list[float] = []
     indices: list[int] = []
 
@@ -142,7 +160,6 @@ def generate_uv_sphere(radius: float = 1.0,
             z = radius * sin_t * sin_p
             vertices.extend([x, y, z])
 
-    # Build triangle indices
     def v(lat: int, lon: int) -> int:
         return lat * (lon_segments + 1) + lon
 
@@ -167,21 +184,41 @@ def simplify_mesh(
     indices: list[int],
     target_ratio: float,
     target_error: float = 0.01,
+    options: int = 0,
 ) -> tuple[list[int], float, float]:
     """
     Simplify a mesh to target_ratio of its original triangle count.
     Returns (new_indices, result_error, time_ms).
+
+    Notes on `options`:
+        - For game meshes with UV seams: pass SIMPLIFY_LOCK_BORDER
+        - For sparse subset meshes: pass SIMPLIFY_SPARSE
+        - 0 = safe default (topology preserved, no special handling)
     """
+    if not vertices:
+        raise ValueError("vertices list is empty")
+    if not indices:
+        raise ValueError("indices list is empty")
+    if len(vertices) % 3 != 0:
+        raise ValueError(f"vertices list length {len(vertices)} is not a multiple of 3")
+    if len(indices) % 3 != 0:
+        raise ValueError(f"indices list length {len(indices)} is not a multiple of 3")
+    if not (0.0 < target_ratio < 1.0):
+        raise ValueError(f"target_ratio must be in (0, 1), got {target_ratio}")
+    if not (0.0 <= target_error <= 1.0):
+        raise ValueError(f"target_error must be in [0, 1], got {target_error}")
+
     index_count = len(indices)
     vertex_count = len(vertices) // 3
 
     # Convert to ctypes
     src_indices = (c_uint * index_count)(*indices)
     src_vertices = (c_float * len(vertices))(*vertices)
-    dst_indices = (c_uint * index_count)()  # worst case = full index buffer
+    # Per meshopt docs: destination must hold up to index_count (NOT target_index_count)
+    dst_indices = (c_uint * index_count)()
     result_error = c_float(0.0)
 
-    target_index_count = int(index_count * target_ratio)
+    target_index_count = max(3, int(index_count * target_ratio))
 
     t0 = time.perf_counter()
     actual = _lib.meshopt_simplify(
@@ -189,23 +226,45 @@ def simplify_mesh(
         src_indices, index_count,
         src_vertices, vertex_count, 12,  # stride = 3 floats = 12 bytes
         target_index_count, target_error,
-        0,  # options: 0 = safe defaults
+        options,
         ctypes.byref(result_error),
     )
     t1 = time.perf_counter()
+
+    if actual == 0:
+        raise RuntimeError("meshopt_simplify returned 0 indices - simplification failed completely")
 
     new_indices = list(dst_indices[:actual])
     return new_indices, result_error.value, (t1 - t0) * 1000.0
 
 
-def optimize_vertex_fetch(
+def compact_and_optimize_vertex_fetch(
     vertices: list[float],
     indices: list[int],
-) -> float:
-    """Run meshopt_optimizeVertexFetch for cache-friendly vertex order. Returns time_ms."""
+) -> tuple[list[float], list[int], int, float]:
+    """
+    Run meshopt_optimizeVertexFetch to:
+      1. Reorder vertices for GPU cache efficiency
+      2. Compact the vertex buffer (remove unused vertices after simplification)
+
+    Returns (new_vertices, new_indices, new_vertex_count, time_ms).
+
+    BUGFIX: Previously this function discarded the destination vertex buffer
+    and only returned timing. The C function reorders vertices into the
+    destination buffer AND rewrites indices in place; we MUST use the new
+    vertex buffer, not the original. Otherwise indices reference vertices
+    that don't exist in the array we pass downstream.
+    """
+    if not vertices or not indices:
+        raise ValueError("vertices and indices must be non-empty")
+    if len(vertices) % 3 != 0:
+        raise ValueError("vertices length must be a multiple of 3")
+
     index_count = len(indices)
     vertex_count = len(vertices) // 3
 
+    # Allocate mutable ctypes buffers. We need separate src and dst because
+    # optimizeVertexFetch reads from src and writes to dst.
     src_indices = (c_uint * index_count)(*indices)
     src_vertices = (c_float * len(vertices))(*vertices)
     dst_vertices = (c_float * len(vertices))()
@@ -213,18 +272,56 @@ def optimize_vertex_fetch(
     t0 = time.perf_counter()
     _lib.meshopt_optimizeVertexFetch(
         dst_vertices,
-        src_indices, index_count,
-        src_vertices, vertex_count, 12,
+        src_indices, index_count,             # indices rewritten in place
+        src_vertices, vertex_count, 12,       # stride = 12 bytes (3 floats)
     )
     t1 = time.perf_counter()
-    return (t1 - t0) * 1000.0
+
+    # The new indices (rewritten in place) reference the new vertex order.
+    new_indices = list(src_indices[:index_count])
+    new_vertices = list(dst_vertices[:len(vertices)])
+
+    # Count distinct vertices actually used (post-compaction)
+    used = set(new_indices)
+    new_vertex_count = len(used)
+
+    return new_vertices, new_indices, new_vertex_count, (t1 - t0) * 1000.0
+
+
+# =============================================================================
+# OBJ writer (simple, well-supported format for PoC verification)
+# =============================================================================
+
+def write_obj(path: Path, vertices: list[float], indices: list[int],
+              vertex_count: int | None = None) -> None:
+    """Write a mesh to a Wavefront .obj file. Positions only (no normals/UVs).
+    This is enough for PoC verification - real game meshes would use .glb.
+
+    If `vertex_count` is provided, only the first N vertices are written
+    (used after compaction, where the vertex buffer is over-allocated).
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    n = vertex_count if vertex_count is not None else len(vertices) // 3
+    if n * 3 > len(vertices):
+        raise ValueError(f"vertex_count {n} exceeds buffer size {len(vertices) // 3}")
+    with path.open("w") as f:
+        f.write(f"# Aurora AOT Mesh Simplifier output\n")
+        f.write(f"# vertices: {n}, triangles: {len(indices) // 3}\n")
+        # Vertices (1-indexed in OBJ)
+        for i in range(n):
+            x, y, z = vertices[i*3], vertices[i*3+1], vertices[i*3+2]
+            f.write(f"v {x:.6f} {y:.6f} {z:.6f}\n")
+        # Faces (OBJ is 1-indexed)
+        for i in range(0, len(indices), 3):
+            a, b, c = indices[i] + 1, indices[i+1] + 1, indices[i+2] + 1
+            f.write(f"f {a} {b} {c}\n")
 
 
 # =============================================================================
 # PoC test
 # =============================================================================
 
-def run_poc(output_dir: Path):
+def run_poc(output_dir: Path, lock_border: bool = False):
     print("=== Aurora Emulator - Phase 2 PoC: AOT Mesh Simplifier ===\n")
 
     # Generate high-poly sphere (typical PC-game hero-asset density)
@@ -234,6 +331,16 @@ def run_poc(output_dir: Path):
     src_verts = len(vertices) // 3
     print(f"      Vertices: {src_verts:,}")
     print(f"      Triangles: {src_tris:,}")
+
+    # Save source mesh as OBJ for reference
+    output_dir.mkdir(parents=True, exist_ok=True)
+    write_obj(output_dir / "source.obj", vertices, indices, vertex_count=src_verts)
+    print(f"      Saved source: {output_dir / 'source.obj'}")
+
+    # Simplification options
+    options = SIMPLIFY_LOCK_BORDER if lock_border else 0
+    if lock_border:
+        print(f"      [option] SIMPLIFY_LOCK_BORDER enabled (preserves UV seams)")
 
     # Simplify at 4 LOD levels (typical game LOD chain)
     print(f"\n[2/3] Simplifying to 4 LOD levels (QEM via meshoptimizer) ...")
@@ -246,27 +353,47 @@ def run_poc(output_dir: Path):
     ]
     for name, ratio in lod_targets:
         if ratio >= 1.0:
+            # LOD0: just save the original, no processing
+            obj_path = output_dir / f"{name}.obj"
+            write_obj(obj_path, vertices, indices, vertex_count=src_verts)
             lods.append(LODResult(
                 lod_name=name, target_ratio=ratio,
                 actual_index_count=len(indices), actual_triangle_count=src_tris,
+                actual_vertex_count=src_verts,
                 target_error=0.0, result_error=0.0,
                 simplify_time_ms=0.0, vertex_fetch_optimize_ms=0.0,
+                obj_file=str(obj_path),
             ))
-            print(f"  {name}: {src_tris:,} tris (no simplification)")
+            print(f"  {name}: {src_tris:,} tris / {src_verts:,} verts (no simplification)")
             continue
 
-        new_idx, err, simplify_ms = simplify_mesh(vertices, indices, ratio, target_error=0.01)
-        actual_tris = len(new_idx) // 3
-        # Optional: re-optimize vertex fetch for runtime cache efficiency
-        vfo_ms = optimize_vertex_fetch(vertices, new_idx)
+        new_idx, err, simplify_ms = simplify_mesh(
+            vertices, indices, ratio,
+            target_error=0.01,
+            options=options,
+        )
+        # Compact + optimize vertex fetch (BUGFIX: now we actually use the result)
+        new_verts, new_idx_compact, new_vert_count, vfo_ms = compact_and_optimize_vertex_fetch(
+            vertices, new_idx
+        )
+        actual_tris = len(new_idx_compact) // 3
+
+        # Save LOD mesh
+        obj_path = output_dir / f"{name}.obj"
+        write_obj(obj_path, new_verts, new_idx_compact, vertex_count=new_vert_count)
+
         lods.append(LODResult(
             lod_name=name, target_ratio=ratio,
-            actual_index_count=len(new_idx), actual_triangle_count=actual_tris,
+            actual_index_count=len(new_idx_compact), actual_triangle_count=actual_tris,
+            actual_vertex_count=new_vert_count,
             target_error=0.01, result_error=err,
             simplify_time_ms=simplify_ms, vertex_fetch_optimize_ms=vfo_ms,
+            obj_file=str(obj_path),
         ))
-        print(f"  {name}: target={int(ratio*100)}% -> {actual_tris:,} tris "
+        print(f"  {name}: target={int(ratio*100)}% -> {actual_tris:,} tris / "
+              f"{new_vert_count:,} verts "
               f"(err={err:.4f}, simplify={simplify_ms:.1f}ms, vfo={vfo_ms:.1f}ms)")
+        print(f"        Saved: {obj_path}")
 
     # Summary
     print(f"\n[3/3] Summary:")
@@ -274,17 +401,18 @@ def run_poc(output_dir: Path):
     for lod in lods:
         if lod.target_ratio >= 1.0:
             continue
-        ratio_of_src = lod.actual_triangle_count / src_tris
+        tri_ratio = lod.actual_triangle_count / src_tris
+        vert_ratio = lod.actual_vertex_count / src_verts
         print(f"  {lod.lod_name}: {lod.actual_triangle_count:>8,} tris  "
-              f"({ratio_of_src*100:5.1f}% of src, err={lod.result_error:.4f}, "
-              f"time={lod.simplify_time_ms + lod.vertex_fetch_optimize_ms:.1f}ms)")
+              f"({tri_ratio*100:5.1f}% of src)  "
+              f"{lod.actual_vertex_count:>8,} verts ({vert_ratio*100:5.1f}% of src)  "
+              f"err={lod.result_error:.4f}")
 
     print(f"\n  NOTE: On a real device, the appropriate LOD is selected at runtime")
     print(f"  based on screen-space size (distance from camera). Meshopt's QEM")
     print(f"  preserves appearance to the target_error threshold (0.01 = 1% deformation).")
 
     # Write results JSON
-    output_dir.mkdir(parents=True, exist_ok=True)
     result = MeshResult(
         source_triangle_count=src_tris,
         source_vertex_count=src_verts,
@@ -299,8 +427,10 @@ def main():
     parser = argparse.ArgumentParser(description="Aurora Emulator - AOT Mesh Simplifier (Phase 2 PoC)")
     parser.add_argument("--output_dir", type=Path,
                         default=PROJECT_ROOT / "tests" / "mesh_engine_output")
+    parser.add_argument("--lock_border", action="store_true",
+                        help="Use SIMPLIFY_LOCK_BORDER option (preserves UV seams)")
     args = parser.parse_args()
-    run_poc(args.output_dir)
+    run_poc(args.output_dir, lock_border=args.lock_border)
 
 
 if __name__ == "__main__":

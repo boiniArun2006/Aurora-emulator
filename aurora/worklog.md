@@ -98,3 +98,52 @@ Work Log:
 Stage Summary:
 - Phase 2 PoC complete and validated. meshoptimizer's QEM implementation produces 4 LOD levels with sub-1% deformation error in single-digit milliseconds.
 - Next: Phase 3 — Loader Engine with predictive prefetching (Patterson's Informed Prefetching + Markov models).
+
+---
+Task ID: aurora-audit-1
+Agent: Main (Super Z)
+Session: 2026-06-22
+Task: Audit third-party code + our wrappers for bugs/issues, fix them, pin versions
+
+Work Log:
+- Audited third-party:
+  - basis_universal v2_1_0r: 3 open bug issues. Issue #271 (Android API<24 ftello) is a blocker
+    for our Android porting — documented in third_party/patches/README.md with patch to apply
+    when we cross-compile. Issues #257, #259 are minor and don't affect our use case.
+  - meshoptimizer v1.1: 0 open bug issues, source clean (no TODO/FIXME/HACK in simplifier.cpp)
+- Pinned both libs to specific release tags in MANIFEST.txt:
+  - basis_universal: v2_1_0r (commit e4f439fc)
+  - meshoptimizer: v1.1 (commit dc9d09ed)
+- Updated setup_third_party.sh to use `git clone --branch <ref>` (cleaner than fetch+checkout)
+- Fixed 4 bugs in src/mesh_engine/aot_mesh_simplifier.py:
+  1. **CRITICAL: optimize_vertex_fetch discarded its result** — was passing dst_vertices but
+     never using it. The function reorders vertices AND rewrites indices in place; we lost both.
+     Renamed to compact_and_optimize_vertex_fetch(), now returns (new_vertices, new_indices,
+     new_vertex_count, time_ms).
+  2. **LODs weren't saved to disk** — only JSON metadata. Now saves each LOD as .obj for
+     verification + downstream use.
+  3. **OBJ files had full vertex buffer** — write_obj now accepts vertex_count parameter and
+     only writes the first N (used) vertices.
+  4. **No input validation** — added validation for vertices/indices lengths, target_ratio,
+     target_error, mesh dimensions.
+- Added meshopt_SimplifyLockBorder support (--lock_border flag) for UV-seamed game meshes
+- Fixed 4 bugs in src/texture_engine/aot_texture_transcoder.py:
+  1. **CRITICAL: -no_multithreading was always on** — this slowed encoding ~3x for
+     "deterministic benchmarking". Made it opt-in via single_threaded=False default.
+     Production encoding is now 3x faster.
+  2. **No cleanup on failure** — transcode_to_astc used try/finally so temp dirs always
+     cleaned up, even on subprocess failure.
+  3. **No input validation** — added validation for quality, astc_block_size, source file
+     existence, supported extensions.
+  4. **ASTC block size was hardcoded** — now configurable via constructor.
+- Validated all fixes:
+  - Phase 1 encode: 10482ms -> 3283ms (3.2x speedup from removing -no_multithreading)
+  - Phase 2 LOD OBJ files: now have correct compacted vertex counts (was 8385 for all,
+    now matches actual_vertex_count per LOD)
+  - Input validation: all 8 negative tests pass
+  - --lock_border flag: works as expected (preserves border vertices)
+
+Stage Summary:
+- All identified bugs fixed and tested. Third-party libs pinned to specific release tags
+  for reproducibility. basis_universal Android API<24 issue documented for future porting.
+- Next: wait for user signal to start Phase 3 (Loader Engine with predictive prefetching).
