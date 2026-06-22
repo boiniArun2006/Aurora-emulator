@@ -64,8 +64,11 @@ from typing import Optional
 # =============================================================================
 
 # Path to the basisu CLI tool built from Basis Universal source.
+# On Windows the binary is basisu.exe, on Linux/macOS it's basisu.
 # Build instructions: see third_party/basis_universal/README.md
-BASISU_BIN = Path(__file__).resolve().parents[2] / "third_party" / "basis_universal" / "bin" / "basisu"
+import sys as _sys
+_BASISU_NAME = "basisu.exe" if _sys.platform == "win32" else "basisu"
+BASISU_BIN = Path(__file__).resolve().parents[2] / "third_party" / "basis_universal" / "bin" / _BASISU_NAME
 
 # UASTC quality levels (from Basis Universal docs).
 # Higher = better quality, slower encode. AOT step can afford higher quality.
@@ -290,9 +293,21 @@ class AOTTextureTranscoder:
             transcode_ms = (t1 - t0) * 1000.0
             return transcode_ms, total_astc_size
         finally:
-            # Always clean up the temp dir, even on failure
+            # Always clean up the temp dir, even on failure.
+            # Don't use ignore_errors=True (silently swallows real errors like
+            # permission denied or locked files); log them instead so the user
+            # knows orphaned dirs may remain.
             if work_dir.exists():
-                shutil.rmtree(work_dir, ignore_errors=True)
+                import sys
+                try:
+                    shutil.rmtree(work_dir)
+                except OSError as e:
+                    print(
+                        f"  WARNING: Could not clean up temp dir {work_dir} "
+                        f"({type(e).__name__}: {e}). You may need to delete it "
+                        f"manually.",
+                        file=sys.stderr,
+                    )
 
     def process_texture(self, src_path: Path, out_dir: Path) -> TextureResult:
         """Process a single texture through the full AOT pipeline."""
@@ -316,6 +331,22 @@ class AOTTextureTranscoder:
         # Step 2: Transcode to ASTC (on-device, fast)
         transcode_ms, astc_size = self.transcode_to_astc(ktx2_path, astc_path)
 
+        # Sanity check: warn if compression made the file LARGER than raw RGBA.
+        # This happens with noisy/high-entropy textures (random noise, dense
+        # detail maps) where UASTC can't find redundancy to exploit. In that
+        # case, the user may want to:
+        #   - Use the ETC1S codec (lower quality but always compresses)
+        #   - Use a lower UASTC quality level
+        #   - Skip this texture and use raw ASTC directly
+        if ktx2_size > raw_rgba_bytes:
+            import sys
+            print(
+                f"  WARNING: KTX2 output ({ktx2_size:,} bytes) is larger than "
+                f"raw RGBA ({raw_rgba_bytes:,} bytes) for {src_path.name}. "
+                f"Consider using ETC1S codec or lowering UASTC quality.",
+                file=sys.stderr,
+            )
+
         result = TextureResult(
             source_file=str(src_path),
             source_format=src_format,
@@ -334,22 +365,42 @@ class AOTTextureTranscoder:
 
     def _compute_raw_rgba_bytes(self, src_path: Path) -> int:
         """Compute raw RGBA byte count (W*H*4) for proper compression comparison.
-        For PNG/JPG/etc., we use Pillow to get dimensions.
-        For DDS/EXR, we'd need dedicated parsers — for now we estimate from file size.
+
+        For PNG/JPG/etc., we use Pillow to read image dimensions.
+        For DDS/EXR/HDR, Pillow can't parse them - we'd need dedicated parsers
+        (tinydds, tinyexr). Until we add those, we raise an explicit error
+        rather than return a wrong estimate that would corrupt compression stats.
+
+        Prior behavior: silently returned filesize*32 for DDS or filesize*4
+        for other unknown formats. These multipliers are wildly wrong:
+          - DDS BCn files are 0.5-1 bpp, raw RGBA is 32 bpp, so a multiplier
+            of 32 overestimates 32-64x.
+          - PNG is already compressed, so filesize*4 is meaningless.
+        Wrong raw_rgba_bytes makes compression_ratio misleading and hides
+        regressions. Better to fail loud than report wrong numbers.
         """
         try:
             from PIL import Image
+        except ImportError as e:
+            raise RuntimeError(
+                f"Pillow is required to compute raw RGBA byte count for "
+                f"{src_path.name}. Install with: pip3 install Pillow\n"
+                f"Underlying error: {e}"
+            ) from e
+
+        try:
             with Image.open(src_path) as img:
                 w, h = img.size
                 return w * h * 4  # 4 bytes per pixel (RGBA8)
-        except Exception:
-            # Fallback: rough estimate from file size (assume 4:1 for PNG, 1:1 for DDS)
-            ext = src_path.suffix.lower()
-            if ext == ".dds":
-                # BCn textures are typically 0.5-1 bpp; raw is 32 bpp
-                # So raw = filesize * ~32-64
-                return int(src_path.stat().st_size * 32)
-            return src_path.stat().st_size * 4
+        except Exception as e:
+            # Pillow can't open this file (DDS, EXR, HDR, or corrupted image).
+            # For Phase 1 PoC, we only test with PNG so this shouldn't happen.
+            # When we add real DDS/EXR support, we'll add tinydds/tinyexr here.
+            raise RuntimeError(
+                f"Could not read image dimensions for {src_path} via Pillow "
+                f"({type(e).__name__}: {e}). If this is a .dds/.exr/.hdr file, "
+                f"we need to add a dedicated parser (tinydds/tinyexr)."
+            ) from e
 
     def process_directory(
         self, src_dir: Path, out_dir: Path

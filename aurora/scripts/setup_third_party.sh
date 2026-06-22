@@ -21,7 +21,22 @@ if [[ -z "$CMAKE_BIN" ]]; then
         exit 1
     fi
 fi
-echo "Using cmake: $CMAKE_BIN ($("$CMAKE_BIN" --version | head -1))"
+
+# Validate cmake version. basis_universal requires CMake 3.15+ (uses
+# target_compile_features with cxx_std_17). meshoptimizer needs 3.0+.
+# We check against 3.15 to be safe for both.
+CMAKE_VERSION="$("$CMAKE_BIN" --version | head -1 | awk '{print $3}')"
+CMAKE_MIN="3.15"
+echo "Using cmake: $CMAKE_BIN (version $CMAKE_VERSION, minimum required: $CMAKE_MIN)"
+
+# Compare versions using sort -V (version sort)
+if ! printf '%s\n%s\n' "$CMAKE_MIN" "$CMAKE_VERSION" | sort -V -C; then
+    echo "ERROR: cmake version $CMAKE_VERSION is older than required $CMAKE_MIN."
+    echo "  basis_universal uses cxx_std_17 which requires CMake 3.15+."
+    echo "  Upgrade with: apt-get install cmake  OR  pip install --upgrade cmake"
+    exit 1
+fi
+
 export PATH="$(dirname "$CMAKE_BIN"):$PATH"
 
 if [[ ! -f "$MANIFEST" ]]; then
@@ -54,9 +69,11 @@ while IFS='|' read -r name repo ref license purpose; do
         echo "  -> already cloned at $dest, skipping clone"
     else
         echo "  -> cloning ref '$ref' to $dest ..."
-        # Use --branch for tags/branches (more efficient than fetch+checkout).
-        # Works for tags like 'v2_1_0r' and branches like 'master'.
-        git clone --depth 1 --branch "$ref" "$repo" "$dest"
+        # --depth 1: shallow clone (only latest commit, faster)
+        # --single-branch: only fetch the named branch (avoids fetching all
+        #   remote refs, ~halves clone time)
+        # --branch: works for both tags (e.g. 'v2_1_0r') and branches
+        git clone --depth 1 --single-branch --branch "$ref" "$repo" "$dest"
     fi
     echo
 done < "$MANIFEST"
@@ -80,13 +97,23 @@ if [[ -d "$THIRD_PARTY_DIR/basis_universal" ]]; then
     fi
 fi
 
-# Build meshoptimizer (shared library for Python ctypes bindings)
+# Build meshoptimizer (shared library for Python ctypes bindings).
+# Library extension depends on platform - the Python wrapper (aot_mesh_simplifier.py)
+# detects this at runtime, but here we just check for any of the possible names.
 if [[ -d "$THIRD_PARTY_DIR/meshoptimizer" ]]; then
-    MESHOPT_SO="$THIRD_PARTY_DIR/meshoptimizer/build/libmeshoptimizer.so"
-    if [[ -f "$MESHOPT_SO" ]]; then
-        echo "[meshoptimizer] Shared library already exists at $MESHOPT_SO, skipping build"
+    # Detect expected library name for this platform
+    case "$(uname -s)" in
+        Linux*)  MESHOPT_LIBNAME="libmeshoptimizer.so" ;;
+        Darwin*) MESHOPT_LIBNAME="libmeshoptimizer.dylib" ;;
+        MINGW*|MSYS*|CYGWIN*) MESHOPT_LIBNAME="meshoptimizer.dll" ;;
+        *)       MESHOPT_LIBNAME="libmeshoptimizer.so" ;;  # fallback
+    esac
+    MESHOPT_LIB="$THIRD_PARTY_DIR/meshoptimizer/build/$MESHOPT_LIBNAME"
+
+    if [[ -f "$MESHOPT_LIB" ]]; then
+        echo "[meshoptimizer] Shared library already exists at $MESHOPT_LIB, skipping build"
     else
-        echo "[meshoptimizer] Building shared library..."
+        echo "[meshoptimizer] Building shared library (target: $MESHOPT_LIBNAME)..."
         cd "$THIRD_PARTY_DIR/meshoptimizer"
         if [[ ! -d build ]]; then
             mkdir -p build
@@ -94,7 +121,7 @@ if [[ -d "$THIRD_PARTY_DIR/meshoptimizer" ]]; then
         cd build
         cmake .. -DCMAKE_BUILD_TYPE=Release -DMESHOPT_BUILD_SHARED_LIBS=ON
         make -j"$(nproc)"
-        echo "  -> libmeshoptimizer.so at: $MESHOPT_SO"
+        echo "  -> $MESHOPT_LIBNAME at: $MESHOPT_LIB"
         cd "$AURORA_ROOT"
     fi
 fi

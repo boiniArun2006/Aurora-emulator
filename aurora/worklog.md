@@ -147,3 +147,42 @@ Stage Summary:
 - All identified bugs fixed and tested. Third-party libs pinned to specific release tags
   for reproducibility. basis_universal Android API<24 issue documented for future porting.
 - Next: wait for user signal to start Phase 3 (Loader Engine with predictive prefetching).
+
+---
+Task ID: aurora-audit-2-claude-review
+Agent: Main (Super Z)
+Session: 2026-06-22
+Task: Address Claude's code review findings (12 issues), verify each against actual code, fix the real ones
+
+Work Log:
+- Got external code review from Claude via GitHub Copilot share (12 issues identified)
+- Audited each of Claude's 12 findings against current code:
+  - 10/12 CORRECT, 1/12 WRONG (#7: per-call ASTC validation already exists at line 239), 1/12 minor
+- Fixed all real issues:
+  - #1: Cross-platform library paths (.so/.dylib/.dll) and basisu.exe on Windows
+  - #2: _compute_raw_rgba_bytes no longer silently returns wrong estimates - raises RuntimeError
+    with clear message instead. Multipliers (32 for DDS, 4 for PNG) were wildly wrong.
+  - #3: ctypes.CDLL wrapped in try/except OSError -> RuntimeError with diagnostic message
+  - #4: Replaced hardcoded stride=12 with VERTEX_STRIDE_BYTES constant
+  - #5: Added out-of-bounds index validation in both simplify_mesh AND
+    compact_and_optimize_vertex_fetch. Validates max(indices) < vertex_count and min >= 0.
+  - #6: Replaced ignore_errors=True with try/except OSError + warning to stderr
+  - #8: Added --single-branch to git clone (was just --depth 1 --branch)
+  - #9: Added CMake version check (>=3.15 required for basis_universal cxx_std_17)
+    Uses sort -V for proper version comparison
+  - #10: Added compression ratio sanity check - warns to stderr if KTX2 > raw RGBA
+  - #11: Removed unused 'field' import from aot_mesh_simplifier.py
+  - #12: Restored README.md (was 1 line, lost in earlier rebase conflict resolution).
+    Now 8100+ bytes with full architecture, install instructions, status, etc.
+- Skipped #7 (Claude was wrong - per-call validation already exists)
+- Verified all fixes:
+  - Out-of-bounds index correctly rejected (3 negative tests pass)
+  - field import removed (verified via grep)
+  - All 6 source-code checks pass (cross-platform paths, CDLL handling, CMake check, etc.)
+  - Full CI simulation (clean /tmp copy): both PoCs pass, 3 KTX2 + 3 ASTC + 5 OBJ produced
+
+Stage Summary:
+- All 11 valid issues from Claude's review fixed and verified. README restored. Cross-platform
+  support added (Linux/macOS/Windows). Input validation hardened (out-of-bounds indices).
+- Lesson learned: should have caught these in my own audit. Will be more thorough next time.
+- Next: wait for user signal to start Phase 3.

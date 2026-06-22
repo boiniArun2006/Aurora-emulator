@@ -42,26 +42,62 @@ import argparse
 import ctypes
 import json
 import math
+import sys
 import time
 from ctypes import c_float, c_size_t, c_uint, POINTER
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, asdict
 from pathlib import Path
 
 # =============================================================================
-# Locate meshoptimizer shared library
+# Locate meshoptimizer shared library (cross-platform)
 # =============================================================================
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-MESHOPT_SO = PROJECT_ROOT / "third_party" / "meshoptimizer" / "build" / "libmeshoptimizer.so"
 
-if not MESHOPT_SO.exists():
+# Pick the correct shared library extension for the current OS.
+# Linux: .so, macOS: .dylib, Windows: .dll
+if sys.platform == "darwin":
+    _LIB_EXT = ".dylib"
+elif sys.platform == "win32":
+    _LIB_EXT = ".dll"
+else:
+    _LIB_EXT = ".so"
+
+# meshoptimizer CMakeLists.txt produces:
+#   Linux/macOS: libmeshoptimizer.{so,dylib}
+#   Windows:     meshoptimizer.dll (no "lib" prefix on Windows)
+_LIB_BASENAME = "libmeshoptimizer" if sys.platform != "win32" else "meshoptimizer"
+MESHOPT_LIB = PROJECT_ROOT / "third_party" / "meshoptimizer" / "build" / f"{_LIB_BASENAME}{_LIB_EXT}"
+
+if not MESHOPT_LIB.exists():
     raise FileNotFoundError(
-        f"meshoptimizer shared library not found at {MESHOPT_SO}. "
-        f"Build it: cd third_party/meshoptimizer && mkdir build && cd build && "
-        f"cmake .. -DCMAKE_BUILD_TYPE=Release -DMESHOPT_BUILD_SHARED_LIBS=ON && make -j$(nproc)"
+        f"meshoptimizer shared library not found at {MESHOPT_LIB}.\n"
+        f"Expected platform: {sys.platform} (extension {_LIB_EXT})\n"
+        f"Build it with: bash scripts/setup_third_party.sh\n"
+        f"Or manually: cd third_party/meshoptimizer && mkdir build && cd build && "
+        f"cmake .. -DCMAKE_BUILD_TYPE=Release -DMESHOPT_BUILD_SHARED_LIBS=ON && "
+        f"cmake --build . --config Release -j"
     )
 
-_lib = ctypes.CDLL(str(MESHOPT_SO))
+# Load the shared library with a helpful error message if it fails
+# (e.g. wrong architecture, missing system deps, ABI mismatch).
+try:
+    _lib = ctypes.CDLL(str(MESHOPT_LIB))
+except OSError as e:
+    raise RuntimeError(
+        f"Failed to load meshoptimizer shared library at {MESHOPT_LIB}.\n"
+        f"This usually means: (1) wrong architecture (e.g. built for x86_64 "
+        f"on an ARM host), (2) missing system runtime (e.g. libstdc++), "
+        f"or (3) ABI mismatch after a pinned-version bump.\n"
+        f"Try rebuilding with: bash scripts/setup_third_party.sh\n"
+        f"Underlying error: {e}"
+    ) from e
+
+# Vertex layout constants. meshopt_simplify REQUIRES positions to be the first
+# 12 bytes of each vertex (3 floats x 4 bytes). If you add attributes (UVs,
+# normals, colors), they go AFTER positions and you must update the stride.
+# We use position-only vertices in the PoC, so stride = 12 bytes.
+VERTEX_STRIDE_BYTES = 12  # 3 floats (x, y, z) x 4 bytes each
 
 # ---- Simplification options (from meshoptimizer.h) --------------------------
 # These are bitmask flags. We expose them so callers can pick the right
@@ -211,6 +247,23 @@ def simplify_mesh(
     index_count = len(indices)
     vertex_count = len(vertices) // 3
 
+    # Validate that all indices reference real vertices.
+    # Without this check, an out-of-bounds index silently corrupts the mesh
+    # (meshopt will read past the vertex buffer or write garbage indices).
+    max_index = max(indices)
+    if max_index >= vertex_count:
+        raise ValueError(
+            f"Index {max_index} is out of bounds for vertex buffer of size "
+            f"{vertex_count} (vertices have indices 0..{vertex_count - 1}). "
+            f"This usually means the vertex buffer was truncated or the indices "
+            f"were generated for a different mesh."
+        )
+    # Also validate non-negative (defensive - shouldn't happen with int inputs
+    # but cheap to check)
+    min_index = min(indices)
+    if min_index < 0:
+        raise ValueError(f"Negative index {min_index} found in indices list")
+
     # Convert to ctypes
     src_indices = (c_uint * index_count)(*indices)
     src_vertices = (c_float * len(vertices))(*vertices)
@@ -224,7 +277,7 @@ def simplify_mesh(
     actual = _lib.meshopt_simplify(
         dst_indices,
         src_indices, index_count,
-        src_vertices, vertex_count, 12,  # stride = 3 floats = 12 bytes
+        src_vertices, vertex_count, VERTEX_STRIDE_BYTES,
         target_index_count, target_error,
         options,
         ctypes.byref(result_error),
@@ -263,6 +316,15 @@ def compact_and_optimize_vertex_fetch(
     index_count = len(indices)
     vertex_count = len(vertices) // 3
 
+    # Validate indices are in-bounds. After simplify_mesh() this should always
+    # be true, but compact_and_optimize_vertex_fetch can also be called on
+    # raw user input, so we validate here too.
+    max_index = max(indices)
+    if max_index >= vertex_count:
+        raise ValueError(
+            f"Index {max_index} out of bounds for vertex buffer of size {vertex_count}"
+        )
+
     # Allocate mutable ctypes buffers. We need separate src and dst because
     # optimizeVertexFetch reads from src and writes to dst.
     src_indices = (c_uint * index_count)(*indices)
@@ -273,7 +335,7 @@ def compact_and_optimize_vertex_fetch(
     _lib.meshopt_optimizeVertexFetch(
         dst_vertices,
         src_indices, index_count,             # indices rewritten in place
-        src_vertices, vertex_count, 12,       # stride = 12 bytes (3 floats)
+        src_vertices, vertex_count, VERTEX_STRIDE_BYTES,
     )
     t1 = time.perf_counter()
 
