@@ -7,6 +7,23 @@ AURORA_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 THIRD_PARTY_DIR="$AURORA_ROOT/third_party"
 MANIFEST="$THIRD_PARTY_DIR/MANIFEST.txt"
 
+# Locate cmake: try PATH first, then common pip-install locations
+CMAKE_BIN="${CMAKE:-}"
+if [[ -z "$CMAKE_BIN" ]]; then
+    if command -v cmake &>/dev/null; then
+        CMAKE_BIN="$(command -v cmake)"
+    elif [[ -x "$HOME/.venv/bin/cmake" ]]; then
+        CMAKE_BIN="$HOME/.venv/bin/cmake"
+    elif [[ -x "$HOME/.local/bin/cmake" ]]; then
+        CMAKE_BIN="$HOME/.local/bin/cmake"
+    else
+        echo "ERROR: cmake not found. Install via 'apt-get install cmake' or 'pip install cmake'."
+        exit 1
+    fi
+fi
+echo "Using cmake: $CMAKE_BIN ($("$CMAKE_BIN" --version | head -1))"
+export PATH="$(dirname "$CMAKE_BIN"):$PATH"
+
 if [[ ! -f "$MANIFEST" ]]; then
     echo "ERROR: Manifest not found at $MANIFEST"
     exit 1
@@ -50,16 +67,21 @@ done < "$MANIFEST"
 
 # Build basis_universal
 if [[ -d "$THIRD_PARTY_DIR/basis_universal" ]]; then
-    echo "[basis_universal] Building..."
-    cd "$THIRD_PARTY_DIR/basis_universal"
-    if [[ ! -d build ]]; then
-        mkdir -p build
+    BASISU_BIN="$THIRD_PARTY_DIR/basis_universal/bin/basisu"
+    if [[ -x "$BASISU_BIN" ]]; then
+        echo "[basis_universal] Binary already exists at $BASISU_BIN, skipping build"
+    else
+        echo "[basis_universal] Building..."
+        cd "$THIRD_PARTY_DIR/basis_universal"
+        if [[ ! -d build ]]; then
+            mkdir -p build
+        fi
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=Release
+        make -j"$(nproc)"
+        echo "  -> basisu binary at: $BASISU_BIN"
+        cd "$AURORA_ROOT"
     fi
-    cd build
-    cmake .. -DCMAKE_BUILD_TYPE=Release
-    make -j"$(nproc)"
-    echo "  -> basisu binary at: $THIRD_PARTY_DIR/basis_universal/bin/basisu"
-    cd "$AURORA_ROOT"
 fi
 
 echo

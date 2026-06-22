@@ -378,8 +378,14 @@ def main():
     p_proc.add_argument("--quality", choices=["fast", "default", "max"], default="default")
 
     # Subcommand: run the built-in PoC test
+    # Default test paths are relative to the project root (parent of src/)
+    _project_root = Path(__file__).resolve().parents[2]
     p_test = sub.add_parser("test", help="Run built-in PoC with synthetic textures")
-    p_test.add_argument("--output_dir", type=Path, default=Path("/home/z/my-project/aurora/tests/texture_engine_output"))
+    p_test.add_argument(
+        "--output_dir",
+        type=Path,
+        default=_project_root / "tests" / "texture_engine_output",
+    )
     p_test.add_argument("--quality", choices=["fast", "default", "max"], default="default")
 
     args = parser.parse_args()
@@ -393,7 +399,7 @@ def main():
         print(f"Processed {len(results)} textures.")
 
     elif args.cmd == "test":
-        test_src_dir = Path("/home/z/my-project/aurora/tests/texture_engine_input")
+        test_src_dir = _project_root / "tests" / "texture_engine_input"
         print("=== Aurora Emulator - Phase 1 PoC: AOT Texture Transcoder ===\n")
         print(f"[1/3] Generating synthetic test textures in {test_src_dir} ...")
         textures = generate_test_textures(test_src_dir)

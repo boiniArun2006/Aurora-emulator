@@ -36,3 +36,41 @@ Stage Summary:
 - Phase 1 PoC complete and validated. The AOT texture transcoder pipeline works end-to-end.
 - Key insight: KTX2/UASTC is the right on-device storage format (supercompressed with Zstd, transcodable to any GPU format). ASTC 4x4 is the right runtime GPU format (universal on modern Mali/Adreno).
 - Next: Phase 2 — Mesh Simplification Engine using Garland-QEM. Will use `meshoptimizer` library (Arseny Kapoulkine, MIT license, used by AAA games, follows QEM with extensions).
+
+---
+Task ID: aurora-phase-1.5
+Agent: Main (Super Z)
+Session: 2026-06-22
+Task: Add GitHub Actions CI workflow to auto-validate the setup script + Phase 1 PoC on every push
+
+Work Log:
+- Created .github/workflows/ci.yml with 9 steps:
+  1. Checkout repo
+  2. Install build deps (cmake, python3, Pillow) via apt + pip
+  3. Cache basis_universal source (keyed on MANIFEST.txt hash)
+  4. Cache basis_universal build artifacts (keyed on MANIFEST.txt + setup script hash)
+  5. Run scripts/setup_third_party.sh
+  6. Verify basisu binary exists and runs
+  7. Run Phase 1 PoC (aot_texture_transcoder.py test --quality fast)
+  8. Verify 3 KTX2 + 3 ASTC files produced
+  9. Upload pipeline_results.json as artifact (14-day retention)
+- Hardened scripts/setup_third_party.sh:
+  - Auto-locates cmake (PATH, then ~/.venv/bin, then ~/.local/bin) — works on CI runners AND dev containers
+  - Skips basis_universal rebuild if bin/basisu already exists — respects CI cache hits
+- Made src/texture_engine/aot_texture_transcoder.py portable:
+  - Default test paths now computed relative to script location (was hardcoded to /home/z/my-project/aurora/tests/...)
+  - This was breaking CI on GitHub runners
+- Simulated full CI run locally by copying repo to /tmp/aurora-ci-test/ — all steps passed
+- Committed (commit 68f1a8e) and pushed to GitHub
+- CI ran on GitHub Actions: PASSED in 2 minutes 17 seconds (all 14 steps green)
+  - URL: https://github.com/boiniArun2006/Aurora-emulator-smpl/actions/runs/27926230747
+- Updated PROJECT_STATE.md with CI badge and phase 1.5 entry
+
+Stage Summary:
+- Aurora now has CI. Every push to main (and every PR) will automatically:
+  - Install deps on a clean Ubuntu 22.04 runner
+  - Clone & build Basis Universal from source
+  - Run the Phase 1 PoC test
+  - Verify outputs are produced
+- Cache should make subsequent runs ~30 seconds instead of 2+ minutes
+- Next: Phase 2 — Mesh Simplification Engine (Garland-QEM via meshoptimizer)

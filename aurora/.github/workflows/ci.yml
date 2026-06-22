@@ -1,0 +1,147 @@
+# Aurora Emulator — Continuous Integration
+#
+# This workflow runs on every push to main and on every pull request.
+# It verifies that:
+#   1. The setup_third_party.sh script works on a clean Ubuntu machine
+#   2. Basis Universal builds successfully from source
+#   3. The Phase 1 PoC (AOT Texture Transcoder) runs end-to-end successfully
+#
+# Caches:
+#   - basis_universal source clone (keyed on MANIFEST.txt content)
+#   - basis_universal build artifacts (keyed on MANIFEST.txt + build script hash)
+#
+# Adding new phases? Extend the "Run tests" step below.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:  # Allow manual triggering from GitHub UI
+
+jobs:
+  build-and-test:
+    name: Build & Test (Ubuntu)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    steps:
+      # =========================================================
+      # Step 1: Check out the aurora project (just the aurora/ dir
+      # is at repo root, so a standard checkout works)
+      # =========================================================
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # =========================================================
+      # Step 2: Install build dependencies
+      # Ubuntu 22.04 ships: git, g++ 11, python3, pip, make
+      # We need: cmake, Pillow (python), and a newer g++ for C++17
+      # =========================================================
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake \
+            python3 \
+            python3-pip \
+            python3-venv
+          python3 -m pip install --upgrade pip
+          python3 -m pip install Pillow
+          echo "---- versions ----"
+          g++ --version | head -1
+          cmake --version | head -1
+          python3 --version
+          python3 -c "import PIL; print('Pillow', PIL.__version__)"
+
+      # =========================================================
+      # Step 3: Cache the basis_universal source clone
+      # Keyed on MANIFEST.txt so changing the pinned ref busts cache
+      # =========================================================
+      - name: Cache basis_universal source
+        uses: actions/cache@v4
+        with:
+          path: third_party/basis_universal
+          key: basis-src-${{ hashFiles('third_party/MANIFEST.txt') }}
+          restore-keys: |
+            basis-src-
+
+      # =========================================================
+      # Step 4: Cache the basis_universal build artifacts
+          # Keyed on MANIFEST.txt + setup script hash
+      # =========================================================
+      - name: Cache basis_universal build
+        uses: actions/cache@v4
+        with:
+          path: |
+            third_party/basis_universal/build
+            third_party/basis_universal/bin
+          key: basis-build-${{ hashFiles('third_party/MANIFEST.txt', 'scripts/setup_third_party.sh') }}
+
+      # =========================================================
+      # Step 5: Run the setup script (clones + builds basis_universal)
+      # Skip the clone if cache hit (detected by checking if dir exists)
+      # =========================================================
+      - name: Set up third-party dependencies
+        run: |
+          chmod +x scripts/setup_third_party.sh
+          bash scripts/setup_third_party.sh
+
+      # =========================================================
+      # Step 6: Verify basisu binary exists and runs
+      # =========================================================
+      - name: Verify basisu binary
+        run: |
+          ls -la third_party/basis_universal/bin/basisu
+          third_party/basis_universal/bin/basisu --version
+
+      # =========================================================
+      # Step 7: Run Phase 1 PoC (AOT Texture Transcoder)
+      # This generates 3 synthetic textures, encodes to KTX2/UASTC,
+      # transcodes to ASTC, and reports metrics.
+      # =========================================================
+      - name: Run Phase 1 PoC test
+        run: |
+          python3 src/texture_engine/aot_texture_transcoder.py test --quality fast
+
+      # =========================================================
+      # Step 8: Verify outputs were produced
+      # =========================================================
+      - name: Verify Phase 1 outputs
+        run: |
+          echo "=== Output directory contents ==="
+          ls -la tests/texture_engine_output/
+          echo
+          echo "=== Pipeline results JSON ==="
+          cat tests/texture_engine_output/pipeline_results.json | python3 -m json.tool | head -30
+          echo
+          echo "=== Sanity check: at least 3 KTX2 and 3 ASTC files ==="
+          KTX2_COUNT=$(find tests/texture_engine_output -name "*.ktx2" | wc -l)
+          ASTC_COUNT=$(find tests/texture_engine_output -name "*.astc" | wc -l)
+          echo "KTX2 files: $KTX2_COUNT (expected >= 3)"
+          echo "ASTC files: $ASTC_COUNT (expected >= 3)"
+          if [ "$KTX2_COUNT" -lt 3 ] || [ "$ASTC_COUNT" -lt 3 ]; then
+            echo "FAIL: Expected at least 3 of each output file"
+            exit 1
+          fi
+          echo "PASS"
+
+      # =========================================================
+      # Step 9: Upload pipeline results as an artifact
+      # Lets you inspect the metrics from the GitHub Actions UI
+      # without re-running the workflow
+      # =========================================================
+      - name: Upload pipeline results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase1-pipeline-results
+          path: |
+            tests/texture_engine_output/pipeline_results.json
+            tests/texture_engine_output/*.ktx2
+            tests/texture_engine_output/*.astc
+          retention-days: 14
+          if-no-files-found: warn
