@@ -84,5 +84,24 @@ if [[ -d "$THIRD_PARTY_DIR/basis_universal" ]]; then
     fi
 fi
 
+# Build meshoptimizer (shared library for Python ctypes bindings)
+if [[ -d "$THIRD_PARTY_DIR/meshoptimizer" ]]; then
+    MESHOPT_SO="$THIRD_PARTY_DIR/meshoptimizer/build/libmeshoptimizer.so"
+    if [[ -f "$MESHOPT_SO" ]]; then
+        echo "[meshoptimizer] Shared library already exists at $MESHOPT_SO, skipping build"
+    else
+        echo "[meshoptimizer] Building shared library..."
+        cd "$THIRD_PARTY_DIR/meshoptimizer"
+        if [[ ! -d build ]]; then
+            mkdir -p build
+        fi
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DMESHOPT_BUILD_SHARED_LIBS=ON
+        make -j"$(nproc)"
+        echo "  -> libmeshoptimizer.so at: $MESHOPT_SO"
+        cd "$AURORA_ROOT"
+    fi
+fi
+
 echo
 echo "=== Setup complete ==="

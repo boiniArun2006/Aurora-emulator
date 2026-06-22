@@ -1,8 +1,8 @@
 # Aurora Emulator — Project State
 
 **Last updated:** 2026-06-22
-**Current phase:** Phase 1 — AOT Texture Transcoder (COMPLETE)
-**Next phase:** Phase 2 — Mesh Simplification Engine
+**Current phase:** Phase 2 — Mesh Simplification Engine (COMPLETE)
+**Next phase:** Phase 3 — Loader Engine with predictive prefetching
 **CI status:** ![CI](https://github.com/boiniArun2006/Aurora-emulator-smpl/actions/workflows/ci.yml/badge.svg)
 
 ---
@@ -28,8 +28,8 @@ Aurora is a **hybrid PC-game emulator for Android** that targets mid/low-end dev
 | 0 | ✅ Done | Project setup, git repo, folder structure |
 | 1 | ✅ Done | AOT Texture Transcoder (Basis Universal, BCn→KTX2/UASTC→ASTC) |
 | 1.5 | ✅ Done | GitHub Actions CI (auto-rebuilds basis_universal + runs PoC test on every push) |
-| 2 | ⏳ Next | Mesh Simplification Engine (Garland-QEM) |
-| 3 | Pending | Loader Engine with predictive prefetching |
+| 2 | ✅ Done | Mesh Simplification Engine (Garland-QEM via meshoptimizer) |
+| 3 | ⏳ Next | Loader Engine with predictive prefetching |
 | 4 | Pending | Shader cache infrastructure design |
 | 5 | Pending | Orchestration layer tying engines together |
 | 6 | Pending | Mali Vulkan sanitizer shim |

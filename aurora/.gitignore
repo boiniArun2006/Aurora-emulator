@@ -19,6 +19,7 @@ venv/
 # Test outputs (regeneratable)
 tests/texture_engine_input/
 tests/texture_engine_output/
+tests/mesh_engine_output/
 
 # OS
 .DS_Store

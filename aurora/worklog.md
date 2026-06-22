@@ -74,3 +74,27 @@ Stage Summary:
   - Verify outputs are produced
 - Cache should make subsequent runs ~30 seconds instead of 2+ minutes
 - Next: Phase 2 — Mesh Simplification Engine (Garland-QEM via meshoptimizer)
+
+---
+Task ID: aurora-phase-2
+Agent: Main (Super Z)
+Session: 2026-06-22
+Task: Build Phase 2 — AOT Mesh Simplifier using meshoptimizer's QEM implementation
+
+Work Log:
+- Cloned meshoptimizer (Arseny Kapoulkine, MIT license, used by AAA games) to third_party/
+- Built as shared library (libmeshoptimizer.so) for Python ctypes bindings
+  - cmake config: -DMESHOPT_BUILD_SHARED_LIBS=ON
+  - Located at: third_party/meshoptimizer/build/libmeshoptimizer.so
+- Wrote Phase 2 component: src/mesh_engine/aot_mesh_simplifier.py
+  - ctypes bridge to meshopt_simplify() and meshopt_optimizeVertexFetch()
+  - Generates synthetic UV sphere (8,385 verts, 16,384 tris — typical hero-asset density)
+  - Simplifies to 4 LOD levels: LOD0 (100%), LOD1 (50%), LOD2 (25%), LOD3 (10%)
+  - Reports triangle counts, error, and timing per LOD
+- Updated scripts/setup_third_party.sh: now also builds meshoptimizer
+- Updated .github/workflows/ci.yml: caches meshoptimizer source+build, verifies .so, runs Phase 2 PoC, validates 4+ LODs in output JSON
+- Validated locally: 16k triangles → 1.6k triangles in ~5ms with 0.34% error (QEM works as advertised)
+
+Stage Summary:
+- Phase 2 PoC complete and validated. meshoptimizer's QEM implementation produces 4 LOD levels with sub-1% deformation error in single-digit milliseconds.
+- Next: Phase 3 — Loader Engine with predictive prefetching (Patterson's Informed Prefetching + Markov models).

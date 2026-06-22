@@ -58,28 +58,30 @@ jobs:
           python3 -c "import PIL; print('Pillow', PIL.__version__)"
 
       # =========================================================
-      # Step 3: Cache the basis_universal source clone
+      # Step 3: Cache the basis_universal + meshoptimizer source clone
       # Keyed on MANIFEST.txt so changing the pinned ref busts cache
       # =========================================================
-      - name: Cache basis_universal source
+      - name: Cache third-party sources
         uses: actions/cache@v4
         with:
-          path: third_party/basis_universal
-          key: basis-src-${{ hashFiles('third_party/MANIFEST.txt') }}
+          path: |
+            third_party/basis_universal
+            third_party/meshoptimizer
+          key: thirdparty-src-${{ hashFiles('third_party/MANIFEST.txt') }}
           restore-keys: |
-            basis-src-
+            thirdparty-src-
 
       # =========================================================
-      # Step 4: Cache the basis_universal build artifacts
-          # Keyed on MANIFEST.txt + setup script hash
+      # Step 4: Cache the build artifacts
       # =========================================================
-      - name: Cache basis_universal build
+      - name: Cache third-party builds
         uses: actions/cache@v4
         with:
           path: |
             third_party/basis_universal/build
             third_party/basis_universal/bin
-          key: basis-build-${{ hashFiles('third_party/MANIFEST.txt', 'scripts/setup_third_party.sh') }}
+            third_party/meshoptimizer/build
+          key: thirdparty-build-${{ hashFiles('third_party/MANIFEST.txt', 'scripts/setup_third_party.sh') }}
 
       # =========================================================
       # Step 5: Run the setup script (clones + builds basis_universal)
@@ -99,6 +101,13 @@ jobs:
           third_party/basis_universal/bin/basisu --version
 
       # =========================================================
+      # Step 6b: Verify meshoptimizer shared library exists
+      # =========================================================
+      - name: Verify meshoptimizer shared library
+        run: |
+          ls -la third_party/meshoptimizer/build/libmeshoptimizer.so
+
+      # =========================================================
       # Step 7: Run Phase 1 PoC (AOT Texture Transcoder)
       # This generates 3 synthetic textures, encodes to KTX2/UASTC,
       # transcodes to ASTC, and reports metrics.
@@ -108,23 +117,40 @@ jobs:
           python3 src/texture_engine/aot_texture_transcoder.py test --quality fast
 
       # =========================================================
-      # Step 8: Verify outputs were produced
+      # Step 7b: Run Phase 2 PoC (AOT Mesh Simplifier)
+      # Generates a 16k-tri UV sphere, simplifies to 4 LOD levels via QEM.
       # =========================================================
-      - name: Verify Phase 1 outputs
+      - name: Run Phase 2 PoC test
         run: |
-          echo "=== Output directory contents ==="
+          python3 src/mesh_engine/aot_mesh_simplifier.py
+
+      # =========================================================
+      # Step 8: Verify outputs were produced (Phase 1 + Phase 2)
+      # =========================================================
+      - name: Verify Phase 1 + Phase 2 outputs
+        run: |
+          echo "=== Phase 1 outputs ==="
           ls -la tests/texture_engine_output/
-          echo
-          echo "=== Pipeline results JSON ==="
-          cat tests/texture_engine_output/pipeline_results.json | python3 -m json.tool | head -30
-          echo
-          echo "=== Sanity check: at least 3 KTX2 and 3 ASTC files ==="
           KTX2_COUNT=$(find tests/texture_engine_output -name "*.ktx2" | wc -l)
           ASTC_COUNT=$(find tests/texture_engine_output -name "*.astc" | wc -l)
           echo "KTX2 files: $KTX2_COUNT (expected >= 3)"
           echo "ASTC files: $ASTC_COUNT (expected >= 3)"
           if [ "$KTX2_COUNT" -lt 3 ] || [ "$ASTC_COUNT" -lt 3 ]; then
-            echo "FAIL: Expected at least 3 of each output file"
+            echo "FAIL: Phase 1 expected at least 3 of each output file"
+            exit 1
+          fi
+          echo
+          echo "=== Phase 2 outputs ==="
+          ls -la tests/mesh_engine_output/
+          if [ ! -f tests/mesh_engine_output/mesh_pipeline_results.json ]; then
+            echo "FAIL: Phase 2 expected mesh_pipeline_results.json"
+            exit 1
+          fi
+          # Verify the JSON has at least 4 LOD entries (LOD0..LOD3)
+          LOD_COUNT=$(python3 -c "import json; print(len(json.load(open('tests/mesh_engine_output/mesh_pipeline_results.json'))['lods']))")
+          echo "LOD entries: $LOD_COUNT (expected >= 4)"
+          if [ "$LOD_COUNT" -lt 4 ]; then
+            echo "FAIL: Phase 2 expected at least 4 LOD levels"
             exit 1
           fi
           echo "PASS"
@@ -138,10 +164,11 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: phase1-pipeline-results
+          name: pipeline-results
           path: |
             tests/texture_engine_output/pipeline_results.json
             tests/texture_engine_output/*.ktx2
             tests/texture_engine_output/*.astc
+            tests/mesh_engine_output/mesh_pipeline_results.json
           retention-days: 14
           if-no-files-found: warn
