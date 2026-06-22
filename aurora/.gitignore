@@ -20,6 +20,8 @@ venv/
 tests/texture_engine_input/
 tests/texture_engine_output/
 tests/mesh_engine_output/
+tests/loader_engine_output/
+tests/real_assets/textures_processed/
 
 # OS
 .DS_Store

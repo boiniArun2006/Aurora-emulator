@@ -125,9 +125,18 @@ jobs:
           python3 src/mesh_engine/aot_mesh_simplifier.py
 
       # =========================================================
-      # Step 8: Verify outputs were produced (Phase 1 + Phase 2)
+      # Step 7c: Run Phase 3 PoC (Loader Engine with Predictive Prefetching)
+      # Generates a synthetic play trace, trains a Markov model, simulates
+      # runtime across cache sizes. Validates prefetching improves hit rate.
       # =========================================================
-      - name: Verify Phase 1 + Phase 2 outputs
+      - name: Run Phase 3 PoC test
+        run: |
+          python3 src/loader_engine/predictive_prefetcher.py
+
+      # =========================================================
+      # Step 8: Verify outputs were produced (Phase 1 + 2 + 3)
+      # =========================================================
+      - name: Verify Phase 1 + 2 + 3 outputs
         run: |
           echo "=== Phase 1 outputs ==="
           ls -la tests/texture_engine_output/
@@ -146,14 +155,35 @@ jobs:
             echo "FAIL: Phase 2 expected mesh_pipeline_results.json"
             exit 1
           fi
-          # Verify the JSON has at least 4 LOD entries (LOD0..LOD3)
           LOD_COUNT=$(python3 -c "import json; print(len(json.load(open('tests/mesh_engine_output/mesh_pipeline_results.json'))['lods']))")
           echo "LOD entries: $LOD_COUNT (expected >= 4)"
           if [ "$LOD_COUNT" -lt 4 ]; then
             echo "FAIL: Phase 2 expected at least 4 LOD levels"
             exit 1
           fi
-          echo "PASS"
+          echo
+          echo "=== Phase 3 outputs ==="
+          ls -la tests/loader_engine_output/
+          if [ ! -f tests/loader_engine_output/loader_pipeline_results.json ]; then
+            echo "FAIL: Phase 3 expected loader_pipeline_results.json"
+            exit 1
+          fi
+          # Validate that prefetching improved hit rate for at least one cache size
+          IMPROVEMENT=$(python3 -c "
+          import json
+          data = json.load(open('tests/loader_engine_output/loader_pipeline_results.json'))
+          results = data['stats']['results_by_cache_size']
+          max_improvement = max(r['improvement_pp'] for r in results)
+          print(f'{max_improvement:.1f}')
+          ")
+          echo "Best improvement: ${IMPROVEMENT}pp (expected > 0)"
+          # Use python for the comparison (bc may not be installed)
+          if python3 -c "import sys; sys.exit(0 if float('$IMPROVEMENT') > 0 else 1)"; then
+            echo "PASS: prefetching improved hit rate"
+          else
+            echo "FAIL: Phase 3 prefetching did not improve hit rate"
+            exit 1
+          fi
 
       # =========================================================
       # Step 9: Upload pipeline results as an artifact
@@ -170,5 +200,9 @@ jobs:
             tests/texture_engine_output/*.ktx2
             tests/texture_engine_output/*.astc
             tests/mesh_engine_output/mesh_pipeline_results.json
+            tests/mesh_engine_output/*.obj
+            tests/loader_engine_output/loader_pipeline_results.json
+            tests/loader_engine_output/markov_model.json
+            tests/loader_engine_output/play_trace.json
           retention-days: 14
           if-no-files-found: warn
