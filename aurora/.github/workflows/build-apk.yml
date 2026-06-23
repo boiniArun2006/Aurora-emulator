@@ -1,13 +1,7 @@
-# Aurora Emulator - Android APK Build CI
+# Aurora Emulator - Android APK Build + Release
 #
-# Builds a REAL working APK based on the GameNative fork.
-# The APK includes: Box64, Wine, DXVK, Turnip driver, PulseAudio, X server.
-#
-# How to use:
-# 1. Push code to GitHub
-# 2. GitHub Actions builds the APK in the cloud (~10 min)
-# 3. Download from: https://github.com/boiniArun2006/Aurora-emulator-smpl/actions
-# 4. Install: adb install app-modern-debug.apk
+# Builds the APK on every push to main and creates a GitHub release.
+# APK is uploaded as both an artifact (Actions UI) and a release asset.
 
 name: Build APK
 
@@ -17,10 +11,6 @@ on:
     paths:
       - 'android/**'
       - '.github/workflows/build-apk.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'android/**'
   workflow_dispatch:
 
 jobs:
@@ -32,8 +22,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          lfs: true
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -60,21 +48,60 @@ jobs:
         working-directory: android
         run: ./gradlew assembleModernDebug --no-daemon --stacktrace
 
-      - name: Upload debug APK
+      - name: Rename APK
+        run: |
+          cp android/app/build/outputs/apk/modern/debug/app-modern-debug.apk \
+             Aurora-${{ github.sha }}.apk
+
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: aurora-modern-debug-apk
-          path: android/app/build/outputs/apk/modern/debug/*.apk
+          name: aurora-debug-apk
+          path: Aurora-*.apk
           retention-days: 30
           if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.${{ github.run_number }}
+          name: Aurora v0.1.${{ github.run_number }}
+          body: |
+            ## Aurora Emulator — PC Gaming on Android
+
+            ### Download
+            Download `Aurora-*.apk` below and install on your Android phone.
+
+            ### What's new
+            - Full Box64 + Wine + DXVK integration
+            - Aurora Mali Vulkan Sanitizer (10 rules)
+            - AOT Texture Transcoder (Basis Universal)
+            - Mesh LOD Simplification (meshoptimizer QEM)
+            - Markov Predictive File Prefetcher
+            - Per-Game Shader Cache
+            - Auto-Installer (VC++/DirectX/PhysX/.NET)
+            - Aurora settings tab in per-game config
+
+            ### Requirements
+            - Android 8.0+ (API 26+)
+            - ARM64 device (arm64-v8a)
+            - Adreno 6xx+ or Mali Valhall+ GPU
+
+            ### How to install
+            1. Download the APK
+            2. Enable "Install from unknown sources" in Android settings
+            3. Tap the APK file to install
+            4. Launch Aurora and wait for initial setup
+          files: Aurora-*.apk
+          draft: false
+          prerelease: true
 
       - name: Upload build reports on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: build-reports
-          path: |
-            android/app/build/reports/
-            android/build/reports/
+          path: android/app/build/reports/
           retention-days: 7
           if-no-files-found: warn

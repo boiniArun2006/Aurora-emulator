@@ -1,57 +1,4 @@
 # Build artifacts
-third_party/basis_universal/build/
-third_party/basis_universal/bin/
-third_party/*/build/
-third_party/*/.git/
-third_party/*/.git
-
-# Don't commit third-party sources (rebuildable from manifest)
-third_party/basis_universal/
-third_party/meshoptimizer/
-
-# Python
-__pycache__/
-*.pyc
-*.pyo
-.venv/
-venv/
-
-# Android build artifacts
-android/.gradle/
-android/build/
-android/app/build/
-android/local.properties
-android/*.iml
-android/app/*.iml
-android/.idea/
-android/captures/
-android/.cxx/
-
-# Test outputs (regeneratable)
-tests/texture_engine_input/
-tests/texture_engine_output/
-tests/mesh_engine_output/
-tests/loader_engine_output/
-tests/shader_engine_output/
-tests/orchestrator_engine_output/
-tests/mali_sanitizer_output/
-tests/auto_installer_output/
-tests/audio_engine_output/
-tests/integration_output/
-tests/real_assets/textures_processed/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# IDE
-.vscode/
-.idea/
-*.swp
-tests/shader_engine_output/
-reference_repos/
-
-# Android project (GameNative fork)
 android/.gradle/
 android/build/
 android/app/build/
@@ -63,3 +10,15 @@ android/captures/
 android/*.iml
 android/app/*.iml
 android/.kotlin/
+
+# Archive (Python PoCs — kept for reference, not built)
+archive/third_party/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#0A0E1A"/>
+  <path d="M80 340 Q160 280 256 340 T432 340 L432 400 L80 400 Z" fill="#69F0AE" opacity="0.3"/>
+  <path d="M80 360 Q160 300 256 360 T432 360 L432 420 L80 420 Z" fill="#00BCD4" opacity="0.4"/>
+  <path d="M80 380 Q160 320 256 380 T432 380 L432 440 L80 440 Z" fill="#7C4DFF" opacity="0.3"/>
+  <text x="256" y="280" font-family="Arial, sans-serif" font-size="220" font-weight="bold" text-anchor="middle" fill="#00BCD4">A</text>
+  <text x="256" y="480" font-family="Arial, sans-serif" font-size="36" font-weight="bold" text-anchor="middle" fill="#69F0AE" letter-spacing="8">AURORA</text>
+</svg>
