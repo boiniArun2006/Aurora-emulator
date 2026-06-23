@@ -61,9 +61,15 @@ public class AuroraShaderCacheHelper {
         if (cloudCache.exists()) {
             Log.i(TAG, "  Pre-downloaded cloud cache found: " + cloudCache.length() + " bytes");
         } else {
-            Log.i(TAG, "  No cloud cache yet — first launch will compile shaders on-demand");
-            // TODO: When cloud backend is available, download cache here:
-            // downloadCloudCache(gameId, renderer, cacheDir);
+            // Aurora: check if cloud cache is available for this game+GPU
+            // (currently always returns false — cloud backend not yet deployed)
+            boolean cloudAvailable = isCloudCacheAvailable(gameId, renderer);
+            if (cloudAvailable) {
+                Log.i(TAG, "  Cloud cache available — would download here (backend not deployed)");
+                // When cloud backend is deployed: downloadCloudCache(gameId, renderer, cacheDir);
+            } else {
+                Log.i(TAG, "  No cloud cache — first launch will compile shaders on-demand");
+            }
         }
 
         // Set DXVK_STATE_CACHE_PATH to our per-game directory

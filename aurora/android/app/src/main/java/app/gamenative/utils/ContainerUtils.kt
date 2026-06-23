@@ -83,6 +83,7 @@ object ContainerUtils {
             DefaultVersion.DXVK = if (GPUInformation.isAdreno6xx(context)) "1.11.1-sarek" else latestDxvk()
             DefaultVersion.VKD3D = latestVkd3d()
             DefaultVersion.WRAPPER = WRAPPER_TURNIP_CAPABLE
+            DefaultVersion.BOX64 = latestBox64()
             DefaultVersion.STEAM_TYPE = Container.STEAM_TYPE_NORMAL
             DefaultVersion.ASYNC_CACHE = "1"
         } else if (GPUInformation.isAdreno8EliteGen5(context)) {
