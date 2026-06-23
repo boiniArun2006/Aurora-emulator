@@ -18,7 +18,10 @@ import java.util.regex.Pattern;
 import app.gamenative.R;
 
 public class WineInfo implements Parcelable {
-    public static final WineInfo MAIN_WINE_VERSION = new WineInfo("wine", "9.2", "x86_64");
+    // Updated 2026-06-23: aligned with WinNative-Emu/WinNative
+    // Source: https://github.com/WinNative-Emu/WinNative WineInfo.java
+    // Check for newer: https://github.com/WinNative-Emu/proton-wine/releases
+    public static final WineInfo MAIN_WINE_VERSION = new WineInfo("proton", "9.0", "x86_64");
     private static final Pattern pattern = Pattern.compile("^(wine|proton|Proton)\\-([0-9\\.]+)(?:\\-([0-9\\.]+))?\\-(x86|x86_64|arm64ec)(?:\\-([0-9]+))?$");
     public final String version;
     public final String type;

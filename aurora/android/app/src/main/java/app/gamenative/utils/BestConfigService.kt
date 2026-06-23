@@ -762,7 +762,7 @@ object BestConfigService {
 
                 if (!originalJson.has("wineVersion") || originalJson.isNull("wineVersion")) {
                     if (containerVariant.equals(Container.GLIBC, ignoreCase = true)) {
-                        originalJson.put("wineVersion", "wine-9.2-x86_64")
+                        originalJson.put("wineVersion", com.winlator.core.WineInfo.MAIN_WINE_VERSION.identifier())
                     }
                     else {
                         Timber.tag("BestConfigService").w("wineVersion is missing or null in original config, returning empty map")
