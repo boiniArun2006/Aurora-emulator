@@ -1,8 +1,8 @@
 # Aurora Emulator — Project State
 
 **Last updated:** 2026-06-22
-**Current phase:** Phase 3 — Loader Engine with Predictive Prefetching (COMPLETE)
-**Next phase:** Phase 4 — Shader cache infrastructure design
+**Current phase:** Phase 8 — Android APK Wrapper (COMPLETE - project structure ready)
+**Next phase:** Native runtime build (requires NDK cross-compilation on real dev machine)
 **CI status:** ![CI](https://github.com/boiniArun2006/Aurora-emulator-smpl/actions/workflows/ci.yml/badge.svg)
 
 ---
@@ -30,11 +30,11 @@ Aurora is a **hybrid PC-game emulator for Android** that targets mid/low-end dev
 | 1.5 | ✅ Done | GitHub Actions CI (auto-rebuilds basis_universal + runs PoC test on every push) |
 | 2 | ✅ Done | Mesh Simplification Engine (Garland-QEM via meshoptimizer) |
 | 3 | ✅ Done | Loader Engine with Markov-based predictive prefetching |
-| 4 | ⏳ Next | Shader cache infrastructure design |
-| 5 | Pending | Orchestration layer tying engines together |
-| 6 | Pending | Mali Vulkan sanitizer shim |
-| 7 | Pending | Integration with Box64 + Wine + DXVK |
-| 8 | Pending | Android APK wrapper |
+| 4 | ✅ Done | Shader Cache Infrastructure (community cloud pre-caching) |
+| 5 | ✅ Done | Orchestration Layer (ImageFs + XEnvironment + Components pattern) |
+| 6 | ✅ Done | Mali Vulkan Sanitizer Shim (10 rules, 1405 calls rewritten in PoC) |
+| 7 | ✅ Done | Integration: Auto-Installer + Audio (ALSA+PulseAudio) + Box64/Wine/DXVK |
+| 8 | ✅ Done | Android APK Wrapper (Jetpack Compose UI, JNI bridge, CMake native build) |
 
 ---
 
@@ -134,6 +134,10 @@ python3 src/texture_engine/aot_texture_transcoder.py test --quality fast
    - `docs/COMPETITOR_COMPARISON.md` — Aurora vs Winlator/Mobox/GameNative/GameHub
    - `docs/AAA_FEASIBILITY.md` — honest analysis of what AAA games we can/can't run
    - `docs/ARCHITECTURE_DECISIONS.md` — why each decision was made (read before changing anything)
+   - `docs/REFERENCE_ARCHITECTURE.md` — lessons from studying Winlator + GameNative source code
+   - `docs/ENV_VAR_MATRIX.md` — the full env var matrix for game launch (from GameNative)
+   - `docs/AUTOINSTALLER_RESEARCH.md` — auto-detect main exe + auto-install VC++/DirectX/PhysX/.NET
+   - `docs/AUDIO_ARCHITECTURE.md` — ALSA vs PulseAudio vs AAudio, porting from GameNative
 4. **Check git log** for commit history: `git -C /home/z/my-project/aurora log --oneline`
 5. **Pick up at "Next Session" section below**
 

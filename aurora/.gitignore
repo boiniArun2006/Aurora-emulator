@@ -16,11 +16,28 @@ __pycache__/
 .venv/
 venv/
 
+# Android build artifacts
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/*.iml
+android/app/*.iml
+android/.idea/
+android/captures/
+android/.cxx/
+
 # Test outputs (regeneratable)
 tests/texture_engine_input/
 tests/texture_engine_output/
 tests/mesh_engine_output/
 tests/loader_engine_output/
+tests/shader_engine_output/
+tests/orchestrator_engine_output/
+tests/mali_sanitizer_output/
+tests/auto_installer_output/
+tests/audio_engine_output/
+tests/integration_output/
 tests/real_assets/textures_processed/
 
 # OS
@@ -31,3 +48,18 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+tests/shader_engine_output/
+reference_repos/
+
+# Android project (GameNative fork)
+android/.gradle/
+android/build/
+android/app/build/
+android/ubuntufs/build/
+android/local.properties
+android/.idea/
+android/.cxx/
+android/captures/
+android/*.iml
+android/app/*.iml
+android/.kotlin/
