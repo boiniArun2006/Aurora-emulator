@@ -4,6 +4,7 @@ import android.content.Context;
 import android.util.Log;
 
 import com.winlator.xenvironment.ImageFs;
+import com.winlator.core.envvars.EnvVars;
 
 import java.io.File;
 

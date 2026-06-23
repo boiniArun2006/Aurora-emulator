@@ -259,7 +259,7 @@ typedef struct {
     uint32_t loaderLayerInterfaceVersion;
     PFN_vkGetInstanceProcAddr pfnGetInstanceProcAddr;
     PFN_vkGetDeviceProcAddr pfnGetDeviceProcAddr;
-    PFN_vkGetPhysicalDeviceProcAddr pfnGetPhysicalDeviceProcAddr;
+    // PFN_vkGetPhysicalDeviceProcAddr not available in NDK headers
 } VkNegotiateLayerInterface;
 
 #define VK_LUNARG_NEGOTIATE_LAYER_INTERFACE_VERSION_2 2
@@ -275,7 +275,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkNegotiateLoaderLayerInterfaceVersion(
     pVersion->loaderLayerInterfaceVersion = VK_LUNARG_NEGOTIATE_LAYER_INTERFACE_VERSION_2;
     pVersion->pfnGetInstanceProcAddr = aurora_vkGetInstanceProcAddr;
     pVersion->pfnGetDeviceProcAddr = aurora_vkGetDeviceProcAddr;
-    pVersion->pfnGetPhysicalDeviceProcAddr = nullptr;
+    // pfnGetPhysicalDeviceProcAddr not available
 
     return VK_SUCCESS;
 }

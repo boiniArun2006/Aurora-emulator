@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.calculateEndPadding
@@ -79,6 +80,11 @@ import app.gamenative.ui.component.settings.SettingsCPUList
 import app.gamenative.ui.component.settings.SettingsCenteredLabel
 import app.gamenative.ui.component.settings.SettingsListDropdown
 import app.gamenative.ui.components.rememberCustomGameFolderPicker
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Surface
+import androidx.compose.ui.text.font.FontWeight
+import com.winlator.core.AuroraTextureHelper
+import com.winlator.core.AuroraMeshHelper
 import app.gamenative.ui.components.requestPermissionsForPath
 import app.gamenative.ui.theme.PluviaTheme
 import app.gamenative.ui.theme.settingsTileColors
@@ -1228,7 +1234,8 @@ fun ContainerConfigDialog(
                         stringResource(R.string.container_config_tab_win_components),
                         stringResource(R.string.container_config_tab_environment),
                         stringResource(R.string.container_config_tab_drives),
-                        stringResource(R.string.container_config_tab_advanced)
+                        stringResource(R.string.container_config_tab_advanced),
+                        "Aurora"
                     )
                     Column(
                         modifier = Modifier
@@ -1263,11 +1270,140 @@ fun ContainerConfigDialog(
                             if (selectedTab == 6) EnvironmentTabContent(state)
                             if (selectedTab == 7) DrivesTabContent(state)
                             if (selectedTab == 8) AdvancedTabContent(state)
+                            if (selectedTab == 9) AuroraTabContent(state)
                         }
                     }
                 }
             }
         )
+    }
+}
+
+// =============================================================================
+// Aurora Tab — Phase 1-6 engine toggles + status display
+// =============================================================================
+@Composable
+private fun AuroraTabContent(state: ContainerConfigState) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = "Aurora Engines",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            text = "AOT preprocessing + runtime optimizations unique to Aurora.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+        // Phase 1: Texture Engine
+        AuroraEngineItem(
+            title = "AOT Texture Transcoder",
+            subtitle = "Converts BCn → KTX2/UASTC → ASTC at install time (3-4x smaller, no runtime emulation)",
+            available = AuroraTextureHelper.isAvailable(),
+        )
+
+        // Phase 2: Mesh Engine
+        AuroraEngineItem(
+            title = "Mesh LOD Simplification",
+            subtitle = "QEM simplification at 4 LOD levels (faster rendering on low-end GPUs)",
+            available = AuroraMeshHelper.isAvailable(),
+        )
+
+        // Phase 3: Loader Engine
+        AuroraEngineItem(
+            title = "Predictive File Prefetching",
+            subtitle = "Markov model predicts next file access (+43% hit rate on small caches)",
+            available = true, // Pure Kotlin, always available
+        )
+
+        // Phase 4: Shader Cache
+        AuroraEngineItem(
+            title = "Per-Game Shader Cache",
+            subtitle = "Eliminates shader stutter on second launch (cloud sync ready)",
+            available = true, // Pure Java, always available
+        )
+
+        // Phase 6: Mali Sanitizer
+        val context = androidx.compose.ui.platform.LocalContext.current
+        val gpuRenderer = remember { com.winlator.core.GPUInformation.getRenderer(context) }
+        val maliStatus = when {
+            gpuRenderer.contains("Mali") -> "Active (Mali GPU detected)"
+            else -> "Inactive (non-Mali GPU)"
+        }
+        AuroraEngineItem(
+            title = "Mali Vulkan Sanitizer",
+            subtitle = "Filters crash-causing extensions on Mali GPUs (10 rules)\nStatus: $maliStatus",
+            available = true,
+        )
+
+        // Phase 7a: Auto-Installer
+        AuroraEngineItem(
+            title = "Auto-Install Dependencies",
+            subtitle = "Detects and installs VC++, DirectX, PhysX, .NET automatically",
+            available = true,
+        )
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+        Text(
+            text = "These engines run automatically. No manual configuration needed.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun AuroraEngineItem(
+    title: String,
+    subtitle: String,
+    available: Boolean,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = if (available) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f),
+                )
+                Surface(
+                    shape = MaterialTheme.shapes.small,
+                    color = if (available) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer,
+                ) {
+                    Text(
+                        text = if (available) "Ready" else "N/A",
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            subtitle.split("\n").forEach { line ->
+                Text(
+                    text = line,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 

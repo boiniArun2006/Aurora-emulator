@@ -215,6 +215,16 @@ android {
         ignoreFormatFailures  = false
     }
 
+    // Aurora: Build our native libraries (mali sanitizer, texture engine, mesh engine)
+    // via CMake during the Gradle build. GameNative's own .so files are pre-built
+    // in jniLibs/ — we only build Aurora's 3 new libraries here.
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/aurora_cmake/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
     // externalNativeBuild {
     //    cmake {
     //        path = file("src/main/cpp/evshim/CMakeLists.txt")
