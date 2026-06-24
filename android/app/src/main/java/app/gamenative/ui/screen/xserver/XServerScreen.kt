@@ -3318,6 +3318,10 @@ private fun setupXEnvironment(
 
     guestProgramLauncherComponent.envVars = envVars
 
+    // Capture context before the callback — LocalContext.current is @Composable
+    // and can't be called inside try/catch or non-composable lambdas.
+    val auroraContext = LocalContext.current
+
     val gameTerminationCallback = Callback<Int> { status ->
         if (status != 0) {
             Timber.e("Guest program terminated with status: $status")
@@ -3325,26 +3329,19 @@ private fun setupXEnvironment(
         }
 
         // Aurora Phase 3: Process file access trace after game session.
-        // Reads the trace file (if it exists) and trains the Markov model.
-        // NOTE: The trace file is only written by libaurora_prefetch.so
-        // (LD_PRELOAD C library) which does NOT exist yet. This call
-        // will find no trace file and return false — but the hook is
-        // correctly wired for when the C library is built.
+        // NOTE: libaurora_prefetch.so doesn't exist yet — trace file won't exist.
+        // Hook is correctly wired for when the C library is built.
         try {
-            val context = LocalContext.current
-            AuroraPrefetchHelper.processTrace(context, container.id)
+            AuroraPrefetchHelper.processTrace(auroraContext, container.id)
         } catch (e: Exception) {
             Timber.w(e, "Aurora prefetch trace processing failed (non-fatal)")
         }
 
-        // Aurora Phase 4: Upload shader cache to cloud after game session.
-        // NOTE: Cloud upload is not yet implemented (no backend deployed).
-        // This call logs the cache size and would upload if a backend existed.
-        // The local cache is real and valuable — it persists across sessions.
+        // Aurora Phase 4: Log shader cache after game session.
+        // Cloud upload not yet implemented — local cache persists across sessions.
         try {
-            val context = LocalContext.current
-            val renderer = com.winlator.core.GPUInformation.getRenderer(context)
-            val imageFs = com.winlator.xenvironment.ImageFs.find(context)
+            val renderer = com.winlator.core.GPUInformation.getRenderer(auroraContext)
+            val imageFs = com.winlator.xenvironment.ImageFs.find(auroraContext)
             val shaderCacheDir = java.io.File(imageFs.cache_path + "/aurora_shaders/" + container.id)
             AuroraShaderCacheHelper.uploadCacheToCloud(container.id, renderer, shaderCacheDir)
         } catch (e: Exception) {
