@@ -173,7 +173,7 @@ public class AuroraMeshHelper {
                         String idxStr = parts[i].split("/")[0];
                         try {
                             int idx = Integer.parseInt(idxStr);
-                            if (idx < 0) idx = verts.size() / 3 + idx + 2; // negative = relative
+                            if (idx < 0) idx = verts.size() / 3 + idx; // OBJ spec: negative indices are relative to current vertex count
                             else idx = idx - 1; // convert 1-based to 0-based
                             if (idx >= 0) faceIndices.add(idx);
                         } catch (NumberFormatException e) {

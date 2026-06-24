@@ -53,10 +53,22 @@ public abstract class DefaultVersion {
     public static String VARIANT = Container.GLIBC;
     public static String DEFAULT_GRAPHICS_DRIVER = "vortek";
 
-    // Wine/Proton: checked 2026-06-23
-    // Aligned with WinNative-Emu/WinNative's WineInfo.MAIN_WINE_VERSION
-    // Source: https://github.com/WinNative-Emu/WinNative/blob/main/.../WineInfo.java
-    // Proton 11.0 is in beta (beta 5, 2026-05-29) — not stable enough yet
+    // Wine/Proton: checked 2026-06-24
+    // Source: https://github.com/WinNative-Emu/WinNative WineInfo.java
+    // Source: https://github.com/WinNative-Emu/proton-wine (default branch: proton_11.0)
+    //
+    // MAIN_WINE_VERSION = ("proton", "9.0", "x86_64") — stable default.
+    // Proton 11.0 is still BETA (latest: "Proton 11.0 beta 5", 2026-05-29).
+    // WinNative also uses 9.0 as their MAIN_WINE_VERSION.
+    //
+    // Users CAN install Proton 11 via the Contents Manager (WineProtonManagerDialog):
+    //   - Proton-11-B5-x86-64-Steam (from WinNative-Components manifest)
+    //   - Proton-11-B5-Arm64EC-Steam
+    //   - proton-11-arm64ec-b2.wcp (194MB WOW64 build, via .wcp import)
+    // And select it per-game in Container Settings → General → Wine Version.
+    //
+    // The default stays at 9.0 (stable). Proton 11 (beta, WOW64) is opt-in.
+    // This is a user choice, not a silent engineering decision.
     public static String WINE_VERSION = com.winlator.core.WineInfo.MAIN_WINE_VERSION.identifier();
 
     public static String ASYNC = "1";
