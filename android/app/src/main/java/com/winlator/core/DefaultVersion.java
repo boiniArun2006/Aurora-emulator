@@ -24,7 +24,7 @@ public abstract class DefaultVersion {
 
     // Box64: checked 2026-06-23 (latest stable: 0.4.3, Aurora uses 0.4.2)
     public static final String BOX86 = "0.3.2";
-    public static final String BOX64 = "0.4.2";
+    public static String BOX64 = "0.4.2";
 
     // FEXCore: checked 2026-06-23 (latest: 2605)
     public static final String FEXCORE = "2605";

@@ -62,15 +62,15 @@ object ContainerUtils {
         val latestBox64 = contentsManager.getLatestVersionName(
             com.winlator.contents.ContentProfile.ContentType.CONTENT_TYPE_BOX64,
             DefaultVersion.BOX64
-        )
+        )!!
         val latestDxvk = contentsManager.getLatestVersionName(
             com.winlator.contents.ContentProfile.ContentType.CONTENT_TYPE_DXVK,
             DefaultVersion.DXVK
-        )
+        )!!
         val latestVkd3d = contentsManager.getLatestVersionName(
             com.winlator.contents.ContentProfile.ContentType.CONTENT_TYPE_VKD3D,
             DefaultVersion.VKD3D
-        )
+        )!!
 
         // Override default driver and DXVK version based on Turnip capability
         if (GPUInformation.isTurnipCapable(context)) {
