@@ -16,12 +16,26 @@
  */
 
 #include <vulkan/vulkan.h>
-#include <android/log.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <vector>
 #include <string>
+#include <mutex>
+#include <shared_mutex>
+
+// Dual-environment logging: android/log.h only exists in bionic (Android NDK).
+// Inside glibc/PRoot, we use stderr. This makes the .so work in BOTH environments.
+#ifdef __BIONIC__
+#include <android/log.h>
+#define ALOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
+#define ALOGW(...) __android_log_print(ANDROID_LOG_WARN, TAG, __VA_ARGS__)
+#define ALOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+#else
+#define ALOGI(...) do { fprintf(stderr, "[" TAG "] INFO: " __VA_ARGS__); fprintf(stderr, "\n"); } while(0)
+#define ALOGW(...) do { fprintf(stderr, "[" TAG "] WARN: " __VA_ARGS__); fprintf(stderr, "\n"); } while(0)
+#define ALOGE(...) do { fprintf(stderr, "[" TAG "] ERROR: " __VA_ARGS__); fprintf(stderr, "\n"); } while(0)
+#endif
 
 // =============================================================================
 // Vulkan layer structures — normally in vulkan/vk_layer.h, but the NDK
@@ -74,22 +88,9 @@ typedef struct {
 } VkLayerDeviceCreateInfo_;
 
 #define TAG "AuroraMaliSanitizer"
-// Dual logging: try Android log (works when loaded by Android's Vulkan loader
-// in bionic context), fall back to stderr (works inside glibc/PRoot context).
-// This makes the layer work in BOTH environments — as a system Vulkan layer
-// loaded by Android's loader, AND as a layer loaded inside PRoot's glibc env.
-#define LOGI(...) do { \
-    __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__); \
-    fprintf(stderr, "[" TAG "] INFO: " __VA_ARGS__); fprintf(stderr, "\n"); \
-} while(0)
-#define LOGW(...) do { \
-    __android_log_print(ANDROID_LOG_WARN, TAG, __VA_ARGS__); \
-    fprintf(stderr, "[" TAG "] WARN: " __VA_ARGS__); fprintf(stderr, "\n"); \
-} while(0)
-#define LOGE(...) do { \
-    __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__); \
-    fprintf(stderr, "[" TAG "] ERROR: " __VA_ARGS__); fprintf(stderr, "\n"); \
-} while(0)
+#define LOGI(...) ALOGI(__VA_ARGS__)
+#define LOGW(...) ALOGW(__VA_ARGS__)
+#define LOGE(...) ALOGE(__VA_ARGS__)
 
 // =============================================================================
 // Rule database
@@ -121,10 +122,12 @@ struct InstanceDispatch {
 };
 
 // Map from VkInstance to its dispatch table
-// (Simple linear search — there's typically only 1 instance)
+// Protected by g_instance_mutex — DXVK uses worker threads.
+static std::shared_mutex g_instance_mutex;
 static std::vector<std::pair<VkInstance, InstanceDispatch>> g_instance_dispatch;
 
 static InstanceDispatch* get_instance_dispatch(VkInstance instance) {
+    std::shared_lock<std::shared_mutex> lock(g_instance_mutex);
     for (auto& entry : g_instance_dispatch) {
         if (entry.first == instance) return &entry.second;
     }
@@ -142,9 +145,11 @@ struct DeviceDispatch {
     PFN_vkDestroyDevice destroy_device;
 };
 
+static std::shared_mutex g_device_mutex;
 static std::vector<std::pair<VkDevice, DeviceDispatch>> g_device_dispatch;
 
 static DeviceDispatch* get_device_dispatch(VkDevice device) {
+    std::shared_lock<std::shared_mutex> lock(g_device_mutex);
     for (auto& entry : g_device_dispatch) {
         if (entry.first == device) return &entry.second;
     }
@@ -211,7 +216,8 @@ VKAPI_ATTR VkResult VKAPI_CALL aurora_vkCreateInstance(
     dispatch.enumerate_device_extensions =
         (PFN_vkEnumerateDeviceExtensionProperties)nextGIPA(*pInstance, "vkEnumerateDeviceExtensionProperties");
 
-    g_instance_dispatch.push_back({*pInstance, dispatch});
+    { std::unique_lock<std::shared_mutex> lock(g_instance_mutex);
+      g_instance_dispatch.push_back({*pInstance, dispatch}); }
 
     LOGI("Dispatch table populated. Instance: %p", (void*)*pInstance);
     LOGI("Rules: %d blacklisted extensions, descriptor set split at %u",
@@ -234,12 +240,13 @@ VKAPI_ATTR void VKAPI_CALL aurora_vkDestroyInstance(
     }
 
     // Remove from our table
+    { std::unique_lock<std::shared_mutex> lock(g_instance_mutex);
     for (auto it = g_instance_dispatch.begin(); it != g_instance_dispatch.end(); ++it) {
         if (it->first == instance) {
             g_instance_dispatch.erase(it);
             break;
         }
-    }
+    } }
 
     LOGI("Stats: %d extensions blacklisted, %d desc set splits",
          stats_extensions_blacklisted, stats_descriptor_sets_split);
@@ -335,7 +342,8 @@ VKAPI_ATTR VkResult VKAPI_CALL aurora_vkCreateDevice(
             (PFN_vkDestroyDevice)nextGDPA(*pDevice, "vkDestroyDevice");
     }
 
-    g_device_dispatch.push_back({*pDevice, devDispatch});
+    { std::unique_lock<std::shared_mutex> lock(g_device_mutex);
+      g_device_dispatch.push_back({*pDevice, devDispatch}); }
 
     LOGI("Device created: %p, dispatch populated", (void*)*pDevice);
     return VK_SUCCESS;
@@ -354,12 +362,13 @@ VKAPI_ATTR void VKAPI_CALL aurora_vkDestroyDevice(
         dispatch->destroy_device(device, pAllocator);
     }
 
+    { std::unique_lock<std::shared_mutex> lock(g_device_mutex);
     for (auto it = g_device_dispatch.begin(); it != g_device_dispatch.end(); ++it) {
         if (it->first == device) {
             g_device_dispatch.erase(it);
             break;
         }
-    }
+    } }
 }
 
 // =============================================================================

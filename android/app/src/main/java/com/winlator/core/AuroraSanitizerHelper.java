@@ -54,7 +54,7 @@ public class AuroraSanitizerHelper {
             ImageFs imageFs,
             String gpuRenderer) {
 
-        if (gpuRenderer == null || !gpuRenderer.contains("Mali")) {
+        if (gpuRenderer == null || (!gpuRenderer.contains("Mali") && !gpuRenderer.contains("Immortalis"))) {
             return false; // Not a Mali GPU — no sanitizer needed
         }
 

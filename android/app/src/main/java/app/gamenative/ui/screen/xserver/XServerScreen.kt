@@ -3360,7 +3360,13 @@ private fun setupXEnvironment(
         guestProgramLauncherComponent.setGuestExecutable(remaining.first().executable)
         guestProgramLauncherComponent.setTerminationCallback { _ ->
             val current = remaining.first()
-            PreInstallSteps.markStepDone(container, current.marker)
+            // Aurora B8: Only mark step done on success (0) or "already installed" (1638).
+            // Don't mark on failure — allows retry on next launch.
+            if (status == 0 || status == 1638) {
+                PreInstallSteps.markStepDone(container, current.marker)
+            } else {
+                Timber.w("Pre-install step ${current.marker} failed with status $status — not marking as done (will retry next launch)")
+            }
             guestProgramLauncherComponent.setPreUnpack(null)
             try {
                 guestProgramLauncherComponent.execShellCommand("wineserver -k")

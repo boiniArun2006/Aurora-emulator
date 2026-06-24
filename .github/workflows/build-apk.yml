@@ -11,6 +11,8 @@ on:
     paths:
       - 'android/**'
       - '.github/workflows/build-apk.yml'
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 jobs:
@@ -64,11 +66,12 @@ jobs:
           if-no-files-found: error
 
       - name: Create GitHub Release
-        if: github.ref == 'refs/heads/main'
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.1.${{ github.run_number }}
-          name: Aurora v0.1.${{ github.run_number }}
+          generate_release_notes: true
+          draft: false
+          prerelease: true
           body: |
             ## Aurora Emulator — PC Gaming on Android
 

@@ -22,7 +22,7 @@
 
     <!-- Phase 6: Mali Sanitizer -->
     <string name="aurora_mali_title">Mali Vulkan Sanitizer</string>
-    <string name="aurora_mali_subtitle">Filters crash-causing extensions on Mali GPUs (10 rules)</string>
+    <string name="aurora_mali_subtitle">Filters crash-causing extensions on Mali GPUs (5 rules)</string>
     <string name="aurora_mali_status_active">Active (Vulkan layer loaded)</string>
     <string name="aurora_mali_status_fallback">Active (DXVK config fallback)</string>
     <string name="aurora_mali_status_inactive">Inactive (non-Mali GPU)</string>

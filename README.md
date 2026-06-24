@@ -72,7 +72,7 @@ Requires: Android Studio, JDK 17, Android SDK 35, NDK 27, CMake 3.22.
 
 ## Credits
 
-- [GameNative](https://github.com/utkarshdalal/GameNative) — the open-source base
+- [GameNative](https://github.com/utkarshdalal/GameNative) (GPL-3.0) — the open-source base
 - [Box64](https://github.com/ptitSeb/box64) by ptitSeb — x86/x64→ARM64 translator
 - [Wine](https://www.winehq.org/) — Win32 API translation
 - [DXVK](https://github.com/doitsujin/dxvk) — D3D→Vulkan

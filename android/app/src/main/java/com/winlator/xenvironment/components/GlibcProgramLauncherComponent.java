@@ -223,6 +223,12 @@ public class GlibcProgramLauncherComponent extends GuestProgramLauncherComponent
         envVars.put("WINEESYNC_WINLATOR", "1");
         if (this.envVars != null) envVars.putAll(this.envVars);
 
+        // Aurora Phase 6: Mali Vulkan Sanitizer
+        // Must run AFTER envVars.putAll(this.envVars) so our Mali workarounds
+        // are not overwritten by the user/container DXVK_CONFIG.
+        String renderer = GPUInformation.getRenderer(context);
+        AuroraSanitizerHelper.setupSanitizer(context, envVars, imageFs, renderer);
+
         String box64Path = rootDir.getPath() + "/usr/local/bin/box64";
 
         // Check if box64 exists and log its details before executing
@@ -274,13 +280,12 @@ public class GlibcProgramLauncherComponent extends GuestProgramLauncherComponent
 
         envVars.putAll(Box86_64PresetManager.getEnvVars("box64", environment.getContext(), box64Preset));
         String renderer = GPUInformation.getRenderer(context);
-        if (renderer.contains("Mali"))
+        if (renderer.contains("Mali") || renderer.contains("Immortalis"))
             envVars.put("BOX64_MMAP32", "0");
 
         // Aurora Phase 6: Mali Vulkan Sanitizer
         // When GPU is Mali, set up the Vulkan layer (or env var fallbacks)
         // to filter blacklisted extensions and work around driver bugs.
-        AuroraSanitizerHelper.setupSanitizer(context, envVars, imageFs, renderer);
 
         envVars.put("BOX64_X11GLX", "1");
         File box64RCFile = new File(imageFs.getRootDir(), "/etc/config.box64rc");

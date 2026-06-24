@@ -1340,7 +1340,7 @@ private fun AuroraTabContent(state: ContainerConfigState) {
         }
         AuroraEngineItem(
             title = "Mali Vulkan Sanitizer",
-            subtitle = "Filters crash-causing extensions on Mali GPUs (10 rules)\nStatus: $maliStatus",
+            subtitle = "Filters crash-causing extensions on Mali GPUs (5 rules)\nStatus: $maliStatus",
             available = true,
         )
 
