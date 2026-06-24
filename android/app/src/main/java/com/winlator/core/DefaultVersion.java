@@ -39,14 +39,14 @@ public abstract class DefaultVersion {
     public static final String SD8ELITE = "800.51";
 
     // DXVK: checked 2026-06-23 (latest stable: 2.6.1-gplasync)
-    public static String DXVK = "2.6.1-gplasync";
+    public static String DXVK = "2.7.1-gplasync";
 
     // D8VK: checked 2026-06-23
     public static final String D8VK = "1.0";
 
     // VKD3D: checked 2026-06-23 (latest: 3.0.1 in WinNative manifest)
     // Aurora uses 2.14.1 as fallback (matches GameNative baseline)
-    public static String VKD3D = "2.14.1";
+    public static String VKD3D = "3.0";
 
     public static final String CNC_DDRAW = "6.6";
     public static String STEAM_TYPE = STEAM_TYPE_NORMAL;
