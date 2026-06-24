@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
-      contents: write  # Required for creating GitHub releases
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -75,15 +75,17 @@ jobs:
             ### Download
             Download `Aurora-*.apk` below and install on your Android phone.
 
-            ### What's new
+            ### What's included
             - Full Box64 + Wine + DXVK integration
-            - Aurora Mali Vulkan Sanitizer (10 rules)
+            - Aurora Mali Vulkan Sanitizer (10 rules, full Vulkan layer mode)
             - AOT Texture Transcoder (Basis Universal)
             - Mesh LOD Simplification (meshoptimizer QEM)
             - Markov Predictive File Prefetcher
             - Per-Game Shader Cache
             - Auto-Installer (VC++/DirectX/PhysX/.NET)
             - Aurora settings tab in per-game config
+            - Component manifest from WinNative (134 entries)
+            - .wcp file import support
 
             ### Requirements
             - Android 8.0+ (API 26+)

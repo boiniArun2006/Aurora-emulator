@@ -1,2 +1,24 @@
-skills/
-node_modules/
+# Build artifacts
+android/.gradle/
+android/build/
+android/app/build/
+android/ubuntufs/build/
+android/local.properties
+android/.idea/
+android/.cxx/
+android/captures/
+android/*.iml
+android/app/*.iml
+android/.kotlin/
+
+# Archive (Python PoCs — kept for reference, not built)
+archive/third_party/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
