@@ -169,7 +169,7 @@ VKAPI_ATTR VkResult VKAPI_CALL aurora_vkCreateInstance(
     const VkBaseInStructure* pChain = (const VkBaseInStructure*)pCreateInfo->pNext;
     while (pChain) {
         if (pChain->sType == VK_STRUCTURE_TYPE_LOADER_INSTANCE_CREATE_INFO) {
-            const VkLayerInstanceCreateInfo_* layerInfo = (const VkLayerInstanceCreateInfo_*)pChain;
+            VkLayerInstanceCreateInfo_* layerInfo = (VkLayerInstanceCreateInfo_*)pChain;
             if (layerInfo->function == VK_LAYER_LINK_INFO) {
                 // This is the link info — contains the next layer's vkGetInstanceProcAddr
                 nextGIPA = layerInfo->u.pLayerInfo->pfnNextGetInstanceProcAddr;
@@ -274,7 +274,7 @@ VKAPI_ATTR VkResult VKAPI_CALL aurora_vkCreateDevice(
     const VkBaseInStructure* pChain = (const VkBaseInStructure*)pCreateInfo->pNext;
     while (pChain) {
         if (pChain->sType == VK_STRUCTURE_TYPE_LOADER_DEVICE_CREATE_INFO) {
-            const VkLayerDeviceCreateInfo_* layerInfo = (const VkLayerDeviceCreateInfo_*)pChain;
+            VkLayerDeviceCreateInfo_* layerInfo = (VkLayerDeviceCreateInfo_*)pChain;
             if (layerInfo->function == VK_LAYER_LINK_INFO) {
                 nextGDPA = layerInfo->u.pLayerInfo->pfnNextGetDeviceProcAddr;
                 layerInfo->u.pLayerInfo = layerInfo->u.pLayerInfo->pNext;
@@ -430,6 +430,10 @@ VKAPI_ATTR void VKAPI_CALL aurora_vkCmdBindDescriptorSets(
 // =============================================================================
 // vkGetInstanceProcAddr — dispatch to our hooks or pass through
 // =============================================================================
+
+// Forward declaration — aurora_vkGetDeviceProcAddr is defined below but
+// referenced in aurora_vkGetInstanceProcAddr.
+VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL aurora_vkGetDeviceProcAddr(VkDevice device, const char* pName);
 
 VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL aurora_vkGetInstanceProcAddr(
     VkInstance instance, const char* pName)
